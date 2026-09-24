@@ -37,6 +37,8 @@ export const zhTWLocale: LocalePlugin = {
     "settings.shellTool": "Shell 工具",
     "settings.shellToolDescription": "選擇模型執行命令時使用的 Shell。直接輸入的 ! 和 !! 命令仍使用 Bash。",
     "settings.pushPermission": "背景推送（iOS 主畫面應用）",
+    "settings.quotaPanels": "額度面板",
+    "settings.quotaPanelsDescription": "選擇側欄顯示哪些套餐額度面板，新增套餐會自動出現在這裡。",
     "settings.pushPermissionDescription": "將本站加入主畫面後（iPhone 需 iOS 16.4+），工作階段完成且頁面不在前景時，可在鎖定畫面收到系統通知。若通知不再送達，可回到這裡重新註冊。註冊必須由點擊觸發，因此不會自動彈出授權。",
     "settings.pushRegister": "註冊推送",
     "settings.pushRegisterLoading": "註冊中…",

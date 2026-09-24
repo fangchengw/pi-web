@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import { Fragment, useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
@@ -9,6 +9,14 @@ import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
 import { CommandCodeQuota } from "./CommandCodeQuota";
 import { MimoQuota } from "./MimoQuota";
+import { useQuotaPanels } from "@/hooks/useQuotaPanels";
+import { QUOTA_PANEL_IDS, type QuotaPanelId } from "@/lib/quota-panels";
+
+/** 新套餐上线：lib/quota-panels.ts 注册 id/label 后，在此挂载组件（设置页开关自动出现）。 */
+const QUOTA_PANEL_ELEMENTS: Record<QuotaPanelId, ReactNode> = {
+  commandcode: <CommandCodeQuota />,
+  mimo: <MimoQuota />,
+};
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
@@ -174,6 +182,7 @@ export function AppShell() {
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  const { visibility: quotaPanelVisibility } = useQuotaPanels();
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
@@ -1198,8 +1207,9 @@ export function AppShell() {
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onSessionsChange={handleSessionsChange}
       />
-      <CommandCodeQuota />
-      <MimoQuota />
+      {QUOTA_PANEL_IDS.filter((id) => quotaPanelVisibility[id]).map((id) => (
+        <Fragment key={id}>{QUOTA_PANEL_ELEMENTS[id]}</Fragment>
+      ))}
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
           ["models", translate("common.models")],

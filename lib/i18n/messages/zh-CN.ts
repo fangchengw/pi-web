@@ -37,6 +37,8 @@ export const zhCNLocale: LocalePlugin = {
     "settings.shellTool": "Shell 工具",
     "settings.shellToolDescription": "选择模型执行命令时使用的 Shell。直接输入的 ! 和 !! 命令仍使用 Bash。",
     "settings.pushPermission": "后台推送（iOS 主屏应用）",
+    "settings.quotaPanels": "额度面板",
+    "settings.quotaPanelsDescription": "选择侧栏显示哪些套餐额度面板，新增套餐会自动出现在这里。",
     "settings.pushPermissionDescription": "将本站添加到主屏幕后（iPhone 需 iOS 16.4+），会话完成且页面不在前台时，可在锁屏收到系统通知。若通知不再送达，可回到这里重新注册。注册必须由点击触发，因此不会自动弹出授权。",
     "settings.pushRegister": "注册推送",
     "settings.pushRegisterLoading": "注册中…",
