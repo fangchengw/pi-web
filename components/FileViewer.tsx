@@ -12,6 +12,7 @@ import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
 import {
   DOCX_PREVIEW_MAX_BYTES,
+  FILE_EDIT_MAX_BYTES,
   getFileExt,
   isAudioPath,
   isDocumentPreviewPath,
@@ -24,6 +25,7 @@ import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
+import { FileEditor } from "./FileEditor";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
@@ -1151,6 +1153,7 @@ function TextFileViewer({
   const initialScrollTop = initialState?.scrollTop ?? 0;
   const initialScrollLeft = initialState?.scrollLeft ?? 0;
   const [displayMode, setDisplayMode] = useState<DisplayMode>(requestedInitialDisplayMode);
+  const [editing, setEditing] = useState(false);
   const [wrapLines, setWrapLines] = useState(initialWrapLines);
   const [watching, setWatching] = useState(false);
   const esRef = useRef<EventSource | null>(null);
@@ -1271,6 +1274,7 @@ function TextFileViewer({
     setGitDiff(null);
     setGitDiffResolved(false);
     setWatching(false);
+    setEditing(false);
 
     fetchContent(filePath).finally(() => {
       if (active) setLoading(false);
@@ -1458,11 +1462,11 @@ function TextFileViewer({
     };
 
     updateSelectedLineRange();
-    if (!onMentionLines || displayMode !== "source") return;
+    if (editing || !onMentionLines || displayMode !== "source") return;
 
     document.addEventListener("selectionchange", updateSelectedLineRange);
     return () => document.removeEventListener("selectionchange", updateSelectedLineRange);
-  }, [data?.content, displayMode, onMentionLines]);
+  }, [data?.content, displayMode, editing, onMentionLines]);
 
   const mentionLineRange = useCallback((lineRange: SelectedLineRange | null) => {
     if (!onMentionLines || !lineRange) return;
@@ -1474,7 +1478,7 @@ function TextFileViewer({
   }, [cwd, filePath, onMentionLines]);
 
   useEffect(() => {
-    if (!onMentionLines || displayMode !== "source") return;
+    if (editing || !onMentionLines || displayMode !== "source") return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || event.key.toLowerCase() !== "i" || (!event.metaKey && !event.ctrlKey) || event.altKey || event.shiftKey) return;
@@ -1492,7 +1496,7 @@ function TextFileViewer({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [displayMode, mentionLineRange, onMentionLines]);
+  }, [displayMode, editing, mentionLineRange, onMentionLines]);
 
   useEffect(() => {
     if (!scrollRestorePendingRef.current || loading) return;
@@ -1583,7 +1587,7 @@ function TextFileViewer({
         )}
 
         <div className="file-viewer-controls">
-          {displayModes.length > 1 && (
+          {!editing && displayModes.length > 1 && (
             <div className="file-viewer-mode-switch" aria-label={t("i18n.fileViewMode")}>
               {displayModes.map((mode) => {
                 const active = effectiveDisplayMode === mode;
@@ -1608,7 +1612,22 @@ function TextFileViewer({
           )}
 
           <div className="file-viewer-actions">
-            {(onAtMention || onMentionLines) && (
+            {!isDeletedDiff && !editing && (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                title={data && data.size > FILE_EDIT_MAX_BYTES ? t("files.editTooLarge") : t("files.edit")}
+                aria-label={t("files.edit")}
+                disabled={!data || data.size > FILE_EDIT_MAX_BYTES}
+                className="file-viewer-icon-button"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                  <path d="m15 5 4 4" />
+                </svg>
+              </button>
+            )}
+            {!editing && (onAtMention || onMentionLines) && (
               <button
                 type="button"
                 onPointerDown={(event) => event.preventDefault()}
@@ -1634,7 +1653,7 @@ function TextFileViewer({
                 <MentionIcon />
               </button>
             )}
-            {effectiveDisplayMode === "source" && (
+            {!editing && effectiveDisplayMode === "source" && (
               <>
                 <button
                   type="button"
@@ -1659,11 +1678,11 @@ function TextFileViewer({
             )}
           </div>
 
-          {!isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
+          {!isDeletedDiff && !editing && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
         </div>
       </div>
 
-      {data?.truncated && (
+      {!editing && data?.truncated && (
         <div
           className="file-viewer-load-more"
           style={{
@@ -1701,9 +1720,21 @@ function TextFileViewer({
           viewerStateRef.current.scrollTop = event.currentTarget.scrollTop;
           viewerStateRef.current.scrollLeft = event.currentTarget.scrollLeft;
         }}
-        style={{ flex: 1, overflow: "auto", background: "var(--bg)", paddingBottom: data?.truncated ? 48 : undefined }}
+        style={{ flex: 1, overflow: editing ? "hidden" : "auto", background: "var(--bg)", paddingBottom: data?.truncated ? 48 : undefined }}
       >
-        {effectiveDisplayMode === "diff" && hasGitDiff ? (
+        {editing ? (
+          <FileEditor
+            filePath={filePath}
+            readUrl={getFileApiUrl(filePath, "read", sourceSessionId, { full: 1 })}
+            saveUrl={getFileApiUrl(filePath, "read", sourceSessionId)}
+            language={language}
+            onSaved={() => {
+              setEditing(false);
+              void fetchContent(filePath);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : effectiveDisplayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
         ) : isHtml && effectiveDisplayMode === "preview" ? (
           <iframe

@@ -8,6 +8,7 @@ import {
 } from "@/lib/file-access";
 import {
   DOCX_PREVIEW_MAX_BYTES,
+  FILE_EDIT_MAX_BYTES,
   IMAGE_PREVIEW_MAX_BYTES,
   documentPreviewKind,
   getAudioMime,
@@ -479,6 +480,21 @@ export async function GET(
       if (documentMime) {
         return streamFile(filePath, stat, documentMime, request.headers.get("range"));
       }
+      // The in-browser editor loads the whole file in one request instead of
+      // paging through preview chunks.
+      if (request.nextUrl.searchParams.get("full") === "1") {
+        if (stat.size > FILE_EDIT_MAX_BYTES) {
+          return NextResponse.json({ error: "File too large to edit (>5MB)" }, { status: 413 });
+        }
+        return NextResponse.json({
+          content: fs.readFileSync(filePath, "utf8"),
+          nextOffset: stat.size,
+          truncated: false,
+          language: getLanguage(filePath),
+          size: stat.size,
+        });
+      }
+
       const rawOffset = request.nextUrl.searchParams.get("offset");
       if (rawOffset !== null && !/^\d+$/.test(rawOffset)) {
         return NextResponse.json({ error: "Invalid text preview offset" }, { status: 400 });
@@ -647,6 +663,88 @@ export async function GET(
       });
 
     return NextResponse.json({ entries, path: filePath });
+  } catch (error) {
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> }
+) {
+  if (!isApiRequestAllowed(request)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  try {
+    const { path: segments } = await params;
+    const filePath = filePathFromApiSegments(segments);
+
+    // Writes resolve symlinks first so an allowed root can never be used to
+    // reach outside of itself.
+    let realPath: string;
+    try {
+      realPath = fs.realpathSync(filePath);
+    } catch {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    const stat = fs.lstatSync(realPath);
+    if (!stat.isFile()) {
+      return NextResponse.json({ error: "Not a file" }, { status: 400 });
+    }
+    const allowedRoots = await getAllowedFileRoots();
+    if (!isFilePathAllowed(realPath, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+
+    let body: { content?: unknown };
+    try {
+      body = await request.json() as { content?: unknown };
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+    if (typeof body.content !== "string") {
+      return NextResponse.json({ error: "Missing text content" }, { status: 400 });
+    }
+    const content = body.content;
+    const byteLength = Buffer.byteLength(content, "utf8");
+    if (byteLength > FILE_EDIT_MAX_BYTES) {
+      return NextResponse.json({ error: "File too large to edit (>5MB)" }, { status: 413 });
+    }
+
+    // Never overwrite binary payloads: a NUL byte in the head means this is
+    // not a text file.
+    const headSize = Math.min(stat.size, 8192);
+    if (headSize > 0) {
+      const head = Buffer.alloc(headSize);
+      const descriptor = fs.openSync(realPath, "r");
+      try {
+        fs.readSync(descriptor, head, 0, headSize, 0);
+      } finally {
+        fs.closeSync(descriptor);
+      }
+      if (head.includes(0)) {
+        return NextResponse.json({ error: "Binary file cannot be edited" }, { status: 400 });
+      }
+    }
+
+    // Write to a temp file in the same directory, then rename so a crash
+    // mid-write can never truncate the original file.
+    const temporaryPath = path.join(
+      path.dirname(realPath),
+      `.${path.basename(realPath)}.pi-edit-${process.pid}.tmp`,
+    );
+    try {
+      fs.writeFileSync(temporaryPath, content, { encoding: "utf8", mode: stat.mode & 0o777 });
+      fs.renameSync(temporaryPath, realPath);
+    } finally {
+      try {
+        fs.unlinkSync(temporaryPath);
+      } catch {
+        // The rename already consumed the temp file.
+      }
+    }
+
+    return NextResponse.json({ ok: true, size: byteLength });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
