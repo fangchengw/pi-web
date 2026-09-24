@@ -6,6 +6,10 @@ import { pickCommandCodeWindows, type CommandCodeWindow, type RawWindowLimits } 
 const API_BASE_URL = "https://api.commandcode.ai";
 const API_KEY_ENV_VAR = "COMMAND_CODE_API_KEY";
 const QUERY_TIMEOUT_MS = 8_000;
+// /alpha/billing/credits carries the balance AND the 5h/weekly windows, but the
+// upstream endpoint regularly takes 6-10s (observed 2026-09-24) — give it more
+// room instead of failing the whole panel on the default timeout.
+const CREDITS_TIMEOUT_MS = 20_000;
 
 /** Monthly credit totals per plan id (mirrors the command-code CLI plan table). */
 export const PLAN_MONTHLY_CREDITS: Record<string, number> = {
@@ -214,7 +218,8 @@ class CommandCodeAuthError extends Error {}
 async function apiGet<T>(
   apiKey: string,
   endpoint: string,
-  params: Record<string, string | null | undefined>
+  params: Record<string, string | null | undefined>,
+  timeoutMs: number = QUERY_TIMEOUT_MS
 ): Promise<T> {
   const url = new URL(endpoint, API_BASE_URL);
   for (const [key, value] of Object.entries(params)) {
@@ -225,7 +230,7 @@ async function apiGet<T>(
   try {
     response = await fetch(url, {
       headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
-      signal: AbortSignal.timeout(QUERY_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       cache: "no-store",
     });
   } catch (error) {
@@ -252,7 +257,7 @@ export async function fetchCommandCodeUsage(): Promise<CommandCodeUsageResult> {
     const whoami = await apiGet<WhoamiBody>(auth.apiKey, "/alpha/whoami", { limits: "1" });
     const orgId = whoami?.org?.id ?? null;
     const [credits, subscription] = await Promise.all([
-      apiGet<CreditsBody>(auth.apiKey, "/alpha/billing/credits", { orgId }),
+      apiGet<CreditsBody>(auth.apiKey, "/alpha/billing/credits", { orgId }, CREDITS_TIMEOUT_MS),
       apiGet<SubscriptionBody>(auth.apiKey, "/alpha/billing/subscriptions", { orgId }),
     ]);
     const since = subscription?.data?.currentPeriodStart ?? null;
