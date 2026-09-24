@@ -8,6 +8,7 @@ import { ChatWindow } from "./ChatWindow";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
 import { CommandCodeQuota } from "./CommandCodeQuota";
+import { MimoQuota } from "./MimoQuota";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
@@ -1198,6 +1199,7 @@ export function AppShell() {
         onSessionsChange={handleSessionsChange}
       />
       <CommandCodeQuota />
+      <MimoQuota />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
           ["models", translate("common.models")],
