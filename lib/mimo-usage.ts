@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { readChromeCookieHeader } from "./chrome-cookies";
 
 /**
  * MiMo Token Plan quota (platform.xiaomimimo.com).
@@ -28,6 +29,8 @@ const RELAY_TIMEOUT_MS = 15_000;
  * than a plain eval, which only has to answer three same-origin fetches. */
 const RELAY_OPEN_TIMEOUT_MS = 30_000;
 const QUERY_TIMEOUT_MS = 10_000;
+/** host_key suffix matching platform.xiaomimimo.com and .xiaomimimo.com. */
+const CHROME_COOKIE_HOST = "xiaomimimo.com";
 
 export interface MimoQuota {
   planName: string | null;
@@ -272,6 +275,17 @@ async function defaultRelayExec(args: string[]): Promise<string> {
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
+/** Read the logged-in session from Chrome's cookie DB. Never throws: every
+ * failure (no Full Disk Access, no profile, undecodable) is "no cookie" so the
+ * caller falls through to the browser relay. */
+async function defaultChromeCookie(): Promise<string | null> {
+  try {
+    return await readChromeCookieHeader(CHROME_COOKIE_HOST);
+  } catch {
+    return null;
+  }
+}
+
 async function fetchDirect(cookie: string, fetchImpl: FetchLike): Promise<unknown> {
   const headers = {
     Cookie: cookie,
@@ -293,6 +307,41 @@ async function fetchDirect(cookie: string, fetchImpl: FetchLike): Promise<unknow
   return { usage, detail, balance };
 }
 
+type RelayOutcome =
+  | { kind: "data"; envelope: unknown }
+  | { kind: "fail"; result: MimoUsageResult };
+
+/** One relay round-trip including the single off-origin self-heal attempt. */
+async function fetchViaRelay(relayExec: (args: string[]) => Promise<string>): Promise<RelayOutcome> {
+  const stdout = await relayEval(relayExec);
+  const wrongHref = relayWrongPageHref(stdout);
+  if (wrongHref !== null) {
+    return {
+      kind: "fail",
+      result: {
+        status: "auth-unavailable",
+        message: `Browser relay tab is on ${wrongHref || "an unexpected page"} — open platform.xiaomimimo.com in Chrome.`,
+      },
+    };
+  }
+  const errorAt = stdout.indexOf(RELAY_ERROR);
+  if (errorAt >= 0) {
+    const detail = stdout.slice(errorAt + RELAY_ERROR.length).split("\n")[0]?.trim() || "unknown error";
+    return { kind: "fail", result: { status: "query-failed", message: `Browser relay fetch failed: ${detail}` } };
+  }
+  const envelope = parseRelayOutput(stdout);
+  if (envelope === null) {
+    return {
+      kind: "fail",
+      result: {
+        status: "auth-unavailable",
+        message: "Browser relay returned no data — open platform.xiaomimimo.com in Chrome.",
+      },
+    };
+  }
+  return { kind: "data", envelope };
+}
+
 export async function fetchMimoUsage(
   deps: {
     env?: Record<string, string | undefined>;
@@ -300,37 +349,43 @@ export async function fetchMimoUsage(
     relayExec?: (args: string[]) => Promise<string>;
     fetchImpl?: FetchLike;
     now?: number;
+    /** Test seam for the Chrome cookie-DB fast path. */
+    chromeCookie?: () => Promise<string | null>;
   } = {}
 ): Promise<MimoUsageResult> {
   try {
-    const cookie = resolveMimoCookie({ env: deps.env, cookieFilePath: deps.cookieFilePath });
+    const now = deps.now ?? Date.now();
+    // Priority: explicit cookie config, then Chrome's own session cookie (no
+    // browser round-trip), then the opencli relay. Only the explicit override
+    // is authoritative; the other two are optimizations that must degrade.
+    const explicitCookie = resolveMimoCookie({ env: deps.env, cookieFilePath: deps.cookieFilePath });
     let envelope: unknown;
-    if (cookie) {
-      envelope = await fetchDirect(cookie, deps.fetchImpl ?? fetch);
+    if (explicitCookie) {
+      envelope = await fetchDirect(explicitCookie, deps.fetchImpl ?? fetch);
     } else {
-      const relayExec = deps.relayExec ?? defaultRelayExec;
-      const stdout = await relayEval(relayExec);
-      const wrongHref = relayWrongPageHref(stdout);
-      if (wrongHref !== null) {
-        return {
-          status: "auth-unavailable",
-          message: `Browser relay tab is on ${wrongHref || "an unexpected page"} — open platform.xiaomimimo.com in Chrome.`,
-        };
+      let chromeCookie: string | null = null;
+      try {
+        chromeCookie = await (deps.chromeCookie ?? defaultChromeCookie)();
+      } catch {
+        // Reading Chrome must never be able to fail the query — degrade to relay.
       }
-      const errorAt = stdout.indexOf(RELAY_ERROR);
-      if (errorAt >= 0) {
-        const detail = stdout.slice(errorAt + RELAY_ERROR.length).split("\n")[0]?.trim() || "unknown error";
-        return { status: "query-failed", message: `Browser relay fetch failed: ${detail}` };
+      if (chromeCookie) {
+        try {
+          const direct = await fetchDirect(chromeCookie, deps.fetchImpl ?? fetch);
+          // 401 or an odd payload means this session is stale — fall through to
+          // the relay, whose live page can renew the SSO session.
+          if (projectMimoQuota(direct, now)?.kind === "ok") envelope = direct;
+        } catch {
+          // Network/parse hiccup — the relay gets the same chance it always had.
+        }
       }
-      envelope = parseRelayOutput(stdout);
-      if (envelope === null) {
-        return {
-          status: "auth-unavailable",
-          message: "Browser relay returned no data — open platform.xiaomimimo.com in Chrome.",
-        };
+      if (envelope === undefined) {
+        const relay = await fetchViaRelay(deps.relayExec ?? defaultRelayExec);
+        if (relay.kind === "fail") return relay.result;
+        envelope = relay.envelope;
       }
     }
-    const projected = projectMimoQuota(envelope, deps.now ?? Date.now());
+    const projected = projectMimoQuota(envelope, now);
     if (projected === null) {
       return { status: "query-failed", message: "Unexpected MiMo usage payload." };
     }
