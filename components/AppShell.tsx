@@ -11,13 +11,12 @@ import { CommandCodeQuota } from "./CommandCodeQuota";
 import { MimoQuota } from "./MimoQuota";
 import { useSidebarPanels } from "@/hooks/useSidebarPanels";
 import { SIDEBAR_PANEL_IDS, type SidebarPanelId } from "@/lib/sidebar-panels";
-import { CronJobs } from "./CronJobs";
+import { CronJobsPanel } from "./CronJobsPanel";
 
 /** 新面板上线：lib/sidebar-panels.ts 注册 id/label 后，在此挂载组件（设置页开关自动出现）。 */
 const SIDEBAR_PANEL_ELEMENTS: Record<SidebarPanelId, ReactNode> = {
   commandcode: <CommandCodeQuota />,
   mimo: <MimoQuota />,
-  cron: <CronJobs />,
 };
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
@@ -340,7 +339,7 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | "cron" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
@@ -360,7 +359,7 @@ export function AppShell() {
   }, [rightPanelFullWidth]);
 
   const toggleTopPanel = useCallback((
-    panel: "agents" | "branches" | "system" | "tools" | "session",
+    panel: "agents" | "branches" | "system" | "tools" | "session" | "cron",
     keepMobileToolbarOpen = false,
   ) => {
     if (isMobile) setSidebarOpen(false);
@@ -1537,6 +1536,38 @@ export function AppShell() {
           />
         ))}
         <button
+          type="button"
+          onClick={() => toggleTopPanel("cron", mobile)}
+          title={translate("cron.button")}
+          aria-label={translate("cron.button")}
+          aria-pressed={activeTopPanel === "cron"}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            height: "100%", padding: mobile ? 0 : "0 12px",
+            background: activeTopPanel === "cron" ? "var(--bg-selected)" : "none",
+            border: "none",
+            borderTop: activeTopPanel === "cron" ? "2px solid var(--accent)" : "2px solid transparent",
+            borderRight: "1px solid var(--border)",
+            cursor: "pointer",
+            color: activeTopPanel === "cron" ? "var(--text)" : "var(--text-muted)",
+            opacity: 1,
+            fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+          }}
+          onMouseEnter={(event) => {
+            event.currentTarget.style.color = "var(--text)";
+          }}
+          onMouseLeave={(event) => {
+            event.currentTarget.style.color = activeTopPanel === "cron" ? "var(--text)" : "var(--text-muted)";
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }} aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <polyline points="12 7 12 12 15 14" />
+          </svg>
+          {!mobile && <span>{translate("cron.button")}</span>}
+        </button>
+        <button
           ref={systemBtnRef}
           type="button"
           onClick={() => handleSystemInfoToggle("system", mobile)}
@@ -2106,6 +2137,9 @@ export function AppShell() {
                   tools={systemTools}
                   translate={translate}
                 />
+              )}
+              {activeTopPanel === "cron" && (
+                <CronJobsPanel />
               )}
               {activeTopPanel === "session" && (
                 <div className="session-info-popover" style={{

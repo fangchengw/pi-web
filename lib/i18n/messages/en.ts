@@ -500,6 +500,7 @@ export const enLocale: LocalePlugin = {
     "cron.dueNow": "due now",
     "cron.running": "running",
     "cron.historyCount": "{count} completed one-shot jobs",
+    "cron.button": "Cron",
     "cron.scopeUser": "Scope: user — runs for your whole account, anywhere",
     "cron.scopeProject": "Scope: project — runs only inside its project directory",
     "cron.scopeSession": "Scope: session — delivered back to the original chat session",

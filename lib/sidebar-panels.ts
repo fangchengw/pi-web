@@ -7,14 +7,13 @@
  * The Settings → Panels toggle list follows this registry automatically.
  */
 
-export const SIDEBAR_PANEL_IDS = ["commandcode", "mimo", "cron"] as const;
+export const SIDEBAR_PANEL_IDS = ["commandcode", "mimo"] as const;
 export type SidebarPanelId = (typeof SIDEBAR_PANEL_IDS)[number];
 export type SidebarPanelVisibility = Record<SidebarPanelId, boolean>;
 
 export const SIDEBAR_PANEL_LABELS: Record<SidebarPanelId, string> = {
   commandcode: "Command Code",
   mimo: "MiMo Token Plan",
-  cron: "Cron jobs",
 };
 
 export const SIDEBAR_PANELS_STORAGE_KEY = "pi-web:sidebar-panels";
