@@ -162,9 +162,20 @@ export function CronJobs() {
   const jobStatusLine = (job: CronJobView): string => {
     if (job.running) return t("cron.running");
     if (job.disabledReason === "completed_once") return t("cron.completedOnce");
-    if (!job.enabled) return t("cron.paused");
-    return nextRunLabel(job) ? `${t("cron.nextRun")} ${nextRunLabel(job)}` : "";
+    const label = nextRunLabel(job);
+    if (!job.enabled) {
+      // 暂停也显示「下次本该运行」，但过去时间没有意义（别显示 due now）。
+      const future = job.nextRunAt != null && new Date(job.nextRunAt).getTime() > Date.now();
+      return future && label ? `${t("cron.paused")} · ${t("cron.nextRun")} ${label}` : t("cron.paused");
+    }
+    return label ? `${t("cron.nextRun")} ${label}` : "";
   };
+  const scopeHint = (job: CronJobView): string =>
+    job.scope === "project"
+      ? t("cron.scopeProject")
+      : job.scope === "session"
+        ? t("cron.scopeSession")
+        : t("cron.scopeUser");
 
   return (
     <>
@@ -406,7 +417,10 @@ export function CronJobs() {
                             {job.name}
                           </span>
                           {job.scope && (
-                            <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)", flexShrink: 0 }}>
+                            <span
+                              title={scopeHint(job)}
+                              style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)", flexShrink: 0 }}
+                            >
                               {job.scope}
                             </span>
                           )}

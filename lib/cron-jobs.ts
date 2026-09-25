@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { openSync, closeSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -246,14 +246,7 @@ async function withCronLock<T>(paths: CronPaths, update: (store: CronStore) => T
   if (!existsSync(paths.storeLockPath)) {
     throw new Error(`cron extension not found at ${paths.extDir}`);
   }
-  // Bundlers (webpack/turbopack) wrap `import(variable)` in the server bundle
-  // and then fail to load an absolute file:// URL at runtime. Importing through
-  // a Function body keeps the specifier away from static analysis so Node's
-  // native ESM loader handles it, exactly like the extension does.
-  const nativeImport = new Function("specifier", "return import(specifier)") as (
-    specifier: string
-  ) => Promise<unknown>;
-  const lock = (await nativeImport(pathToFileURL(paths.storeLockPath).href)) as StoreLockModule;
+  const lock = (await importExternalModule(pathToFileURL(paths.storeLockPath).href)) as StoreLockModule;
   return lock.withStoreLock(paths.cronDir, () => {
     const store = readCronStore(paths);
     const result = update(store);
@@ -314,14 +307,109 @@ export function startCronDaemon(paths: CronPaths = resolveCronPaths()): DaemonSt
   }
 }
 
+/**
+ * Dynamic import that survives both worlds: bundlers wrap `import(variable)`
+ * and then 500 on absolute file URLs (so Function-constructed import first),
+ * while jiti/vm test harnesses lack the import callback inside `new Function`
+ * (so fall back to the plain specifier import they transform themselves).
+ */
+async function importExternalModule(specifier: string): Promise<unknown> {
+  try {
+    const nativeImport = new Function("s", "return import(s)") as (s: string) => Promise<unknown>;
+    return await nativeImport(specifier);
+  } catch {
+    return await import(specifier);
+  }
+}
+
+interface ScheduleModule {
+  calculateNextRun: (
+    job: { enabled: boolean; kind: string; schedule?: string; runAt?: string },
+    from?: Date
+  ) => string | undefined;
+}
+
+/** Server IANA timezone, e.g. "America/Los_Angeles". */
+function serverTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Load the extension's own calculateNextRun (schedule.ts).
+ *
+ * Node refuses to type-strip .ts under node_modules, and bundlers refuse to
+ * import() an external file:// URL at runtime — so copy the single self-
+ * contained module (its only import is type-only, erased by stripping) to a
+ * tmp cache keyed by size+mtime and import that. Keeps the OFFICIAL cron
+ * semantics with zero ported code.
+ */
+async function loadScheduleModule(paths: CronPaths): Promise<ScheduleModule | null> {
+  const source = join(paths.extDir, "schedule.ts");
+  try {
+    const stat = statSync(source);
+    const cacheDir = join(tmpdir(), "pi-web-cron");
+    const target = join(cacheDir, `schedule-${stat.size}-${stat.mtimeMs}.mts`);
+    if (!existsSync(target)) {
+      mkdirSync(cacheDir, { recursive: true });
+      copyFileSync(source, target);
+    }
+    return (await importExternalModule(pathToFileURL(target).href)) as ScheduleModule;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Next run for jobs whose stored nextRunAt is missing (paused jobs have it
+ * cleared; the daemon's self-heal only covers enabled jobs). Paused jobs get
+ * their next *would-be* occurrence so the panel can always show a countdown.
+ * Returns null for completed one-shots, timezone mismatches (schedule.ts
+ * matches in server-local time, the daemon in job time), or any failure.
+ */
+export async function computeNextRunFallback(
+  job: StoredCronJob,
+  paths: CronPaths = resolveCronPaths(),
+  now: Date = new Date()
+): Promise<string | null> {
+  if (job.disabledReason === "completed_once") return null;
+  if (job.timezone && serverTimeZone() && job.timezone !== serverTimeZone()) return null;
+  const scheduleModule = await loadScheduleModule(paths);
+  if (!scheduleModule) return null;
+  try {
+    // calculateNextRun returns undefined when !enabled — force enabled:true so
+    // paused jobs still yield their next scheduled occurrence.
+    return (
+      scheduleModule.calculateNextRun(
+        { enabled: true, kind: job.kind, schedule: job.schedule, runAt: job.runAt },
+        now
+      ) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function listCronJobs(
   paths: CronPaths = resolveCronPaths()
 ): Promise<CronJobsResult> {
   try {
     const store = readCronStore(paths);
+    const jobs: CronJobView[] = [];
+    for (const job of store.jobs) {
+      let view = toCronJobView(job, paths);
+      if (!view.nextRunAt) {
+        const computed = await computeNextRunFallback(job, paths);
+        if (computed) view = { ...view, nextRunAt: computed };
+      }
+      jobs.push(view);
+    }
     return {
       status: "ready",
-      jobs: store.jobs.map((job) => toCronJobView(job, paths)),
+      jobs,
       history: store.history.map((job) => toCronJobView(job, paths)),
       daemon: readCronStatus(paths),
       capturedAt: Date.now(),
