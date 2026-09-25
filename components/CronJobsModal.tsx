@@ -279,6 +279,11 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
         inset: 0,
         zIndex: 700,
         background: "rgba(0,0,0,0.45)",
+        // PWA standalone 下 viewport-fit=cover 让内容顶到屏幕最上沿，状态条是
+        // 覆盖式的——四边避让（与 .image-preview-dialog 同款），否则标题/关闭键
+        // 被状态条压住：模糊且点不到。
+        padding: "max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left))",
+        boxSizing: "border-box",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -291,8 +296,9 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
         onClick={(event) => event.stopPropagation()}
         style={{
           position: "relative",
-          width: narrow ? "calc(100vw - 12px)" : "min(1440px, 94vw)",
-          height: narrow ? "calc(100dvh - 12px)" : "min(880px, 92vh)",
+          width: narrow ? "100%" : "min(1440px, 94%)",
+          height: narrow ? "100%" : "min(880px, 92%)",
+          boxSizing: "border-box",
           background: "var(--bg-panel)",
           borderRadius: 14,
           boxShadow: "0 24px 64px rgba(0,0,0,0.35)",
