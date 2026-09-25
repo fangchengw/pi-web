@@ -122,7 +122,11 @@ export function CommandCodeQuota() {
         const cached = JSON.parse(raw) as CachedQuota;
         if (cached?.result?.status) {
           setResult(cached.result);
-          if (Date.now() - cached.fetchedAt < CACHE_MAX_AGE_MS) needsQuery = false;
+          // 只有成功的缓存才免于重查；失败结果必须在挂载时立即重试，
+          // 否则一次瞬时失败会把面板卡在错误态直到缓存过期。
+          if (cached.result.status === "ready" && Date.now() - cached.fetchedAt < CACHE_MAX_AGE_MS) {
+            needsQuery = false;
+          }
         }
       }
     } catch {

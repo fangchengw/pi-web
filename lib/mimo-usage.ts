@@ -19,7 +19,14 @@ const API_BASE = `${PLATFORM_ORIGIN}/api/v1`;
 const COOKIE_ENV_VAR = "MIMO_PLATFORM_COOKIE";
 const RELAY_SESSION = "mimo";
 const RELAY_SENTINEL = "MIMOQUOTA";
+/** The eval snippet reports this instead of firing a CORS-blocked fetch when
+ * the bound tab is no longer on the platform origin. */
+const RELAY_WRONG_PAGE = `${RELAY_SENTINEL}WRONGPAGE:`;
+const RELAY_ERROR = `${RELAY_SENTINEL}ERROR:`;
 const RELAY_TIMEOUT_MS = 15_000;
+/** Navigating to the platform waits for a full page load — give it more room
+ * than a plain eval, which only has to answer three same-origin fetches. */
+const RELAY_OPEN_TIMEOUT_MS = 30_000;
 const QUERY_TIMEOUT_MS = 10_000;
 
 export interface MimoQuota {
@@ -177,13 +184,21 @@ export function resolveMimoCookie(
   return null;
 }
 
+/**
+ * Runs in the bound tab, so it must stay same-origin: a cross-origin fetch to
+ * the platform API fails outright ("Failed to fetch"), which used to masquerade
+ * as an expired session. Probe the origin first and report WRONGPAGE so the
+ * caller can reopen the platform page instead of guessing.
+ */
 const RELAY_SNIPPET =
+  `(location.origin==='${PLATFORM_ORIGIN}'?` +
   `Promise.all([` +
   `fetch('${API_BASE}/tokenPlan/usage',{credentials:'include'}).then(r=>r.json()),` +
   `fetch('${API_BASE}/tokenPlan/detail',{credentials:'include'}).then(r=>r.json()),` +
   `fetch('${API_BASE}/balance',{credentials:'include'}).then(r=>r.json())` +
   `]).then(([usage,detail,balance])=>'${RELAY_SENTINEL}'+JSON.stringify({usage,detail,balance}))` +
-  `.catch(e=>'${RELAY_SENTINEL}ERROR:'+e)`;
+  `.catch(e=>'${RELAY_ERROR}'+e):` +
+  `'${RELAY_WRONG_PAGE}'+location.href)`;
 
 /** Extract the sentinel JSON from opencli eval stdout (banner lines tolerated). */
 export function parseRelayOutput(stdout: string): unknown | null {
@@ -199,12 +214,54 @@ export function parseRelayOutput(stdout: string): unknown | null {
   }
 }
 
+/** Extract the off-origin href reported after the WRONGPAGE marker, else null. */
+export function relayWrongPageHref(stdout: string): string | null {
+  const at = stdout.indexOf(RELAY_WRONG_PAGE);
+  if (at < 0) return null;
+  const start = at + RELAY_WRONG_PAGE.length;
+  const end = stdout.indexOf("\n", start);
+  return (end < 0 ? stdout.slice(start) : stdout.slice(start, end)).trim();
+}
+
+/** about:blank / fresh newtab pages carry no state worth preserving. */
+function isJunkPage(href: string): boolean {
+  return href === "" || /^about:/i.test(href) || /^chrome:\/\/new-?tab/i.test(href);
+}
+
+/**
+ * One eval, plus one recovery attempt when the bound tab has drifted off the
+ * platform (Chrome restart, expired lease, closed window → about:blank).
+ * Both `open` and `tab new` resolve only after the navigation commits, so a
+ * single retry suffices — no polling.
+ *
+ * Recovery must never navigate a real web page away: the drifted tab may be
+ * the Pi Web app itself (its own panel refresh triggered this call), and
+ * navigating it would make the app destroy itself in a loop — which is
+ * exactly what an earlier `open`-based version did during testing. Real pages
+ * get a fresh `tab new` instead (the current tab stays open and untouched); only
+ * junk pages (about:blank, newtab) are reused in place.
+ */
+async function relayEval(relayExec: (args: string[]) => Promise<string>): Promise<string> {
+  const stdout = await relayExec(["browser", RELAY_SESSION, "eval", RELAY_SNIPPET]);
+  const wrongHref = relayWrongPageHref(stdout);
+  if (wrongHref === null) return stdout;
+  if (isJunkPage(wrongHref)) {
+    await relayExec(["browser", RELAY_SESSION, "open", PLATFORM_ORIGIN]);
+  } else {
+    await relayExec(["browser", RELAY_SESSION, "tab", "new", PLATFORM_ORIGIN]);
+  }
+  return relayExec(["browser", RELAY_SESSION, "eval", RELAY_SNIPPET]);
+}
+
 async function defaultRelayExec(args: string[]): Promise<string> {
+  // Both `open` and `tab new` wait for a page load, not just a response.
+  const navigates = args[2] === "open" || (args[2] === "tab" && args[3] === "new");
+  const timeout = navigates ? RELAY_OPEN_TIMEOUT_MS : RELAY_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     execFile(
       "opencli",
       args,
-      { timeout: RELAY_TIMEOUT_MS, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 },
+      { timeout, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 },
       (error, stdout) => {
         if (error && !stdout) reject(error);
         else resolve(String(stdout));
@@ -252,7 +309,19 @@ export async function fetchMimoUsage(
       envelope = await fetchDirect(cookie, deps.fetchImpl ?? fetch);
     } else {
       const relayExec = deps.relayExec ?? defaultRelayExec;
-      const stdout = await relayExec(["browser", RELAY_SESSION, "eval", RELAY_SNIPPET]);
+      const stdout = await relayEval(relayExec);
+      const wrongHref = relayWrongPageHref(stdout);
+      if (wrongHref !== null) {
+        return {
+          status: "auth-unavailable",
+          message: `Browser relay tab is on ${wrongHref || "an unexpected page"} — open platform.xiaomimimo.com in Chrome.`,
+        };
+      }
+      const errorAt = stdout.indexOf(RELAY_ERROR);
+      if (errorAt >= 0) {
+        const detail = stdout.slice(errorAt + RELAY_ERROR.length).split("\n")[0]?.trim() || "unknown error";
+        return { status: "query-failed", message: `Browser relay fetch failed: ${detail}` };
+      }
       envelope = parseRelayOutput(stdout);
       if (envelope === null) {
         return {
