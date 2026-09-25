@@ -517,6 +517,7 @@ export const enLocale: LocalePlugin = {
     "cron.noRuns": "No runs yet",
     "cron.viewLog": "View run log",
     "cron.close": "Close",
+    "cron.back": "Back",
     "cron.scopeUser": "Scope: user — runs for your whole account, anywhere",
     "cron.scopeProject": "Scope: project — runs only inside its project directory",
     "cron.scopeSession": "Scope: session — delivered back to the original chat session",

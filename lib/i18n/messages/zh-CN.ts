@@ -517,6 +517,7 @@ export const zhCNLocale: LocalePlugin = {
     "cron.noRuns": "暂无运行记录",
     "cron.viewLog": "查看运行日志",
     "cron.close": "关闭",
+    "cron.back": "返回",
     "cron.scopeUser": "作用域：用户 — 对你的整个账户全局生效",
     "cron.scopeProject": "作用域：项目 — 只在对应项目目录内运行",
     "cron.scopeSession": "作用域：会话 — 投递回创建它的那个聊天会话",

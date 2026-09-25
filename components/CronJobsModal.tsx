@@ -55,6 +55,15 @@ const valueStyle: CSSProperties = {
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
 };
+// 窄屏（≤768px）：标签收窄、值允许换行（时区/路径不再被省略号截断）。
+const labelStyleNarrow: CSSProperties = { ...labelStyle, width: 72 };
+const valueStyleNarrow: CSSProperties = {
+  ...valueStyle,
+  whiteSpace: "normal",
+  overflow: "visible",
+  textOverflow: "clip",
+  overflowWrap: "anywhere",
+};
 
 export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
   const [result, setResult] = useState<CronJobsResult | null>(null);
@@ -63,6 +72,17 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
   const [runCooldown, setRunCooldown] = useState(false);
   const [runToast, setRunToast] = useState<"run" | "resumed" | null>(null);
   const runTimers = useRef<number[]>([]);
+  // 窄屏单栏：列表全宽，点任务进详情（带返回），桌面仍是 master-detail。
+  const [narrow, setNarrow] = useState(false);
+  const [detailPaneOpen, setDetailPaneOpen] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [runLog, setRunLog] = useState<RunLogState | null>(null);
@@ -271,8 +291,8 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
         onClick={(event) => event.stopPropagation()}
         style={{
           position: "relative",
-          width: "min(1440px, 94vw)",
-          height: "min(880px, 92vh)",
+          width: narrow ? "calc(100vw - 12px)" : "min(1440px, 94vw)",
+          height: narrow ? "calc(100dvh - 12px)" : "min(880px, 92vh)",
           background: "var(--bg-panel)",
           borderRadius: 14,
           boxShadow: "0 24px 64px rgba(0,0,0,0.35)",
@@ -312,13 +332,14 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
         {/* ============ 左栏：任务列表 ============ */}
         <div
           style={{
-            width: 300,
-            flexShrink: 0,
-            borderRight: "1px solid var(--border)",
+            width: narrow ? "100%" : 300,
+            flexShrink: narrow ? 1 : 0,
+            borderRight: narrow ? "none" : "1px solid var(--border)",
             display: "flex",
             flexDirection: "column",
-            padding: "18px 14px 12px",
+            padding: narrow ? "14px 12px 12px" : "18px 14px 12px",
             minWidth: 0,
+            ...(narrow && detailPaneOpen ? { display: "none" } : {}),
           }}
         >
           <div style={{ padding: "0 4px" }}>
@@ -382,18 +403,19 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
                     onClick={() => {
                       setSelectedId(job.id);
                       setRunLog(null);
+                      setDetailPaneOpen(true);
                     }}
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: 8,
-                      padding: "8px 10px",
+                      padding: narrow ? "13px 12px" : "8px 10px",
                       borderRadius: 8,
                       border: "none",
                       background: isSelected ? "var(--bg-selected)" : "transparent",
                       color: isSelected ? "var(--text)" : "var(--text-muted)",
                       cursor: "pointer",
-                      fontSize: 12.5,
+                      fontSize: narrow ? 14 : 12.5,
                       textAlign: "left",
                       minWidth: 0,
                     }}
@@ -453,7 +475,15 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
         </div>
 
         {/* ============ 右栏：任务详情 ============ */}
-        <div style={{ flex: "1 1 auto", minWidth: 0, overflowY: "auto", padding: "22px 30px 26px" }}>
+        <div
+          style={{
+            flex: "1 1 auto",
+            minWidth: 0,
+            overflowY: "auto",
+            padding: narrow ? "16px 16px 24px" : "22px 30px 26px",
+            ...(narrow && !detailPaneOpen ? { display: "none" } : {}),
+          }}
+        >
           {result?.status === "query-failed" && (
             <span style={{ fontSize: 12, color: "#f87171" }} title={(result as { message?: string }).message}>
               {t("providerUsage.queryFailed")}
@@ -475,6 +505,8 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
             const lastRun = fmtDateTime(job.lastRunAt);
             const nextAbs = fmtDateTime(job.nextRunAt);
             const runBusy = busyAction === job.id || runCooldown;
+            const metaLabel = narrow ? labelStyleNarrow : labelStyle;
+            const metaValue = narrow ? valueStyleNarrow : valueStyle;
             return (
               <div data-testid={`cron-job-${job.id}`} style={{ minWidth: 0 }}>
                 {ready.actionError && (
@@ -485,6 +517,21 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
 
                 {/* 标题 + 状态 + 操作 */}
                 <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, flexWrap: "wrap", paddingRight: 34 }}>
+                  {narrow && (
+                    <button
+                      type="button"
+                      data-testid="cron-back"
+                      onClick={() => setDetailPaneOpen(false)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 4, height: 34, padding: "0 10px 0 6px",
+                        background: "none", border: "none", borderRadius: 8, color: "var(--text-dim)",
+                        cursor: "pointer", fontSize: 13, flexShrink: 0,
+                      }}
+                    >
+                      <span style={{ fontSize: 20, lineHeight: 1 }} aria-hidden="true">‹</span>
+                      {t("cron.back")}
+                    </button>
+                  )}
                   <span style={{ fontSize: 19, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                     {job.name}
                   </span>
@@ -562,13 +609,13 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
 
                 {/* 元数据 */}
                 <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", rowGap: 9, columnGap: 14, margin: "18px 0 4px" }}>
-                  <span style={labelStyle}>{t("cron.frequency")}</span>
-                  <span style={valueStyle} title={job.kind === "cron" ? job.timezone : undefined}>
+                  <span style={metaLabel}>{t("cron.frequency")}</span>
+                  <span style={metaValue} title={job.kind === "cron" ? job.timezone : undefined}>
                     {job.kind === "cron" ? `${job.schedule}${job.timezone ? ` · ${job.timezone}` : ""}` : (fmtDateTime(job.runAt) ?? job.runAt ?? "—")}
                   </span>
 
-                  <span style={labelStyle}>{t("cron.lastRun")}</span>
-                  <span style={valueStyle}>
+                  <span style={metaLabel}>{t("cron.lastRun")}</span>
+                  <span style={metaValue}>
                     {lastRun ?? "—"}
                     {lastRun && job.lastExitCode !== undefined && (
                       <span style={{ color: job.lastExitCode === 0 ? "#4ade80" : "#f87171", marginLeft: 8 }}>
@@ -577,14 +624,14 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
                     )}
                   </span>
 
-                  <span style={labelStyle}>{t("cron.nextRunLabel")}</span>
-                  <span style={valueStyle} data-testid={`cron-next-${job.id}`}>
+                  <span style={metaLabel}>{t("cron.nextRunLabel")}</span>
+                  <span style={metaValue} data-testid={`cron-next-${job.id}`}>
                     {statusLine(job)}
                     {statusLine(job) && nextAbs ? ` · ${nextAbs}` : nextAbs ?? ""}
                   </span>
 
-                  <span style={labelStyle}>{t("cron.deliverTo")}</span>
-                  <span style={valueStyle} title={scopeHint(job)}>
+                  <span style={metaLabel}>{t("cron.deliverTo")}</span>
+                  <span style={metaValue} title={scopeHint(job)}>
                     {job.scope ?? "user"} · {job.cwd ?? "—"}
                   </span>
                 </div>

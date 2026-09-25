@@ -517,6 +517,7 @@ export const zhTWLocale: LocalePlugin = {
     "cron.noRuns": "暫無運行記錄",
     "cron.viewLog": "查看運行日誌",
     "cron.close": "關閉",
+    "cron.back": "返回",
     "cron.scopeUser": "作用域：使用者 — 對你的整個帳戶全域生效",
     "cron.scopeProject": "作用域：專案 — 只在對應專案目錄內執行",
     "cron.scopeSession": "作用域：會話 — 投遞回建立它的那個聊天會話",
