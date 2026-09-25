@@ -30,8 +30,8 @@ import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
-import { useQuotaPanels } from "@/hooks/useQuotaPanels";
-import { QUOTA_PANEL_IDS, QUOTA_PANEL_LABELS } from "@/lib/quota-panels";
+import { useSidebarPanels } from "@/hooks/useSidebarPanels";
+import { SIDEBAR_PANEL_IDS, SIDEBAR_PANEL_LABELS } from "@/lib/sidebar-panels";
 
 interface Props {
   cwd: string | null;
@@ -67,7 +67,7 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
 function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
-  const { visibility: quotaPanels, setPanelEnabled: setQuotaPanelEnabled } = useQuotaPanels();
+  const { visibility: sidebarPanels, setPanelEnabled: setSidebarPanelEnabled } = useSidebarPanels();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
@@ -288,16 +288,16 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         </section>
       )}
 
-      <section className="settings-general-section" data-testid="settings-quota-panels">
-        <h3 className="settings-general-heading">{t("settings.quotaPanels")}</h3>
-        <p className="settings-general-description">{t("settings.quotaPanelsDescription")}</p>
-        {QUOTA_PANEL_IDS.map((id) => (
-          <div className="settings-shell-option" key={id} data-testid={`settings-quota-panel-${id}`}>
-            <span>{QUOTA_PANEL_LABELS[id]}</span>
+      <section className="settings-general-section" data-testid="settings-panels">
+        <h3 className="settings-general-heading">{t("settings.panels")}</h3>
+        <p className="settings-general-description">{t("settings.panelsDescription")}</p>
+        {SIDEBAR_PANEL_IDS.map((id) => (
+          <div className="settings-shell-option" key={id} data-testid={`settings-panel-${id}`}>
+            <span>{SIDEBAR_PANEL_LABELS[id]}</span>
             <ConfigSwitch
-              checked={quotaPanels[id]}
-              label={QUOTA_PANEL_LABELS[id]}
-              onChange={(enabled) => setQuotaPanelEnabled(id, enabled)}
+              checked={sidebarPanels[id]}
+              label={SIDEBAR_PANEL_LABELS[id]}
+              onChange={(enabled) => setSidebarPanelEnabled(id, enabled)}
             />
           </div>
         ))}

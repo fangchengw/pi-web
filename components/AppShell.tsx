@@ -9,13 +9,15 @@ import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
 import { CommandCodeQuota } from "./CommandCodeQuota";
 import { MimoQuota } from "./MimoQuota";
-import { useQuotaPanels } from "@/hooks/useQuotaPanels";
-import { QUOTA_PANEL_IDS, type QuotaPanelId } from "@/lib/quota-panels";
+import { useSidebarPanels } from "@/hooks/useSidebarPanels";
+import { SIDEBAR_PANEL_IDS, type SidebarPanelId } from "@/lib/sidebar-panels";
+import { CronJobs } from "./CronJobs";
 
-/** 新套餐上线：lib/quota-panels.ts 注册 id/label 后，在此挂载组件（设置页开关自动出现）。 */
-const QUOTA_PANEL_ELEMENTS: Record<QuotaPanelId, ReactNode> = {
+/** 新面板上线：lib/sidebar-panels.ts 注册 id/label 后，在此挂载组件（设置页开关自动出现）。 */
+const SIDEBAR_PANEL_ELEMENTS: Record<SidebarPanelId, ReactNode> = {
   commandcode: <CommandCodeQuota />,
   mimo: <MimoQuota />,
+  cron: <CronJobs />,
 };
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
@@ -182,7 +184,7 @@ export function AppShell() {
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
-  const { visibility: quotaPanelVisibility } = useQuotaPanels();
+  const { visibility: sidebarPanelVisibility } = useSidebarPanels();
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
@@ -1207,8 +1209,8 @@ export function AppShell() {
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onSessionsChange={handleSessionsChange}
       />
-      {QUOTA_PANEL_IDS.filter((id) => quotaPanelVisibility[id]).map((id) => (
-        <Fragment key={id}>{QUOTA_PANEL_ELEMENTS[id]}</Fragment>
+      {SIDEBAR_PANEL_IDS.filter((id) => sidebarPanelVisibility[id]).map((id) => (
+        <Fragment key={id}>{SIDEBAR_PANEL_ELEMENTS[id]}</Fragment>
       ))}
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
