@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { openSync, closeSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,11 +50,21 @@ export interface StoredCronJob {
   disabledReason?: "completed_once" | "user_disabled" | "error";
   completedAt?: string;
   lastRunLog?: string;
+  /** Canonical persisted session file — present only for session-scope jobs. */
+  sessionFile?: string;
+}
+
+export interface CronRunLog {
+  name: string;
+  /** Epoch ms parsed from the ISO-ish file name (mtime fallback). */
+  at: number;
 }
 
 export interface CronJobView extends StoredCronJob {
   /** Full self-contained prompt markdown (null when the file is missing). */
   prompt: string | null;
+  /** Recent run logs, newest first (max10). */
+  runs: CronRunLog[];
 }
 
 export interface CronStore {
@@ -171,7 +181,51 @@ export function readCronPrompt(job: StoredCronJob, paths: CronPaths): string | n
 }
 
 export function toCronJobView(job: StoredCronJob, paths: CronPaths): CronJobView {
-  return { ...job, prompt: readCronPrompt(job, paths) };
+  return { ...job, prompt: readCronPrompt(job, paths), runs: listCronRuns(job, paths) };
+}
+
+const RUN_LOG_NAME = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.log$/;
+const SAFE_JOB_ID = /^[A-Za-z0-9_-]+$/;
+
+/** "2026-09-25T06-02-29-750Z.log" → epoch ms (null for anything else). */
+export function parseCronRunTimestamp(name: string): number | null {
+  const match = RUN_LOG_NAME.exec(name);
+  if (!match) return null;
+  const ms = Date.parse(`${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** Recent run logs for a job, newest first. Missing dir / bad id → empty. */
+export function listCronRuns(job: StoredCronJob, paths: CronPaths, limit = 10): CronRunLog[] {
+  if (!SAFE_JOB_ID.test(job.id)) return [];
+  try {
+    const dir = join(paths.cronDir, "runs", job.id);
+    const entries = readdirSync(dir);
+    const runs: CronRunLog[] = [];
+    for (const name of entries) {
+      const at = parseCronRunTimestamp(name);
+      if (at !== null) runs.push({ name, at });
+    }
+    runs.sort((a, b) => b.at - a.at);
+    return runs.slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+const MAX_RUN_LOG_CHARS = 100_000;
+
+/** Read one run log; rejects path traversal and non-log names with null. */
+export function readCronRunLog(paths: CronPaths, jobId: string, logName: string): string | null {
+  if (!SAFE_JOB_ID.test(jobId) || parseCronRunTimestamp(logName) === null) return null;
+  try {
+    const content = readFileSync(join(paths.cronDir, "runs", jobId, logName), "utf8");
+    return content.length > MAX_RUN_LOG_CHARS
+      ? `${content.slice(0, MAX_RUN_LOG_CHARS)}\n…`
+      : content;
+  } catch {
+    return null;
+  }
 }
 
 function pidAlive(pid: number): boolean {

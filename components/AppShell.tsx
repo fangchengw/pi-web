@@ -11,7 +11,7 @@ import { CommandCodeQuota } from "./CommandCodeQuota";
 import { MimoQuota } from "./MimoQuota";
 import { useSidebarPanels } from "@/hooks/useSidebarPanels";
 import { SIDEBAR_PANEL_IDS, type SidebarPanelId } from "@/lib/sidebar-panels";
-import { CronJobsPanel } from "./CronJobsPanel";
+import { CronJobsModal } from "./CronJobsModal";
 
 /** 新面板上线：lib/sidebar-panels.ts 注册 id/label 后，在此挂载组件（设置页开关自动出现）。 */
 const SIDEBAR_PANEL_ELEMENTS: Record<SidebarPanelId, ReactNode> = {
@@ -2139,7 +2139,16 @@ export function AppShell() {
                 />
               )}
               {activeTopPanel === "cron" && (
-                <CronJobsPanel />
+                <CronJobsModal
+                  onClose={() => setActiveTopPanel(null)}
+                  onOpenSessionId={(sessionId) => {
+                    const found = sessionCatalog.find((session) => session.id === sessionId);
+                    if (!found) return false;
+                    handleSelectSession(found);
+                    setActiveTopPanel(null);
+                    return true;
+                  }}
+                />
               )}
               {activeTopPanel === "session" && (
                 <div className="session-info-popover" style={{

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   listCronJobs,
   mutateCronJob,
+  readCronRunLog,
   resolveCronPaths,
   startCronDaemon,
   type CronJobsResult,
@@ -13,7 +14,19 @@ export const dynamic = "force-dynamic";
 
 type JobsResponse = CronJobsResult & { actionError?: string };
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
+  const runLogParam = new URL(request.url).searchParams.get("runLog");
+  if (runLogParam !== null) {
+    const parts = runLogParam.split("/");
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      return NextResponse.json({ error: "Invalid runLog parameter" }, { status: 400 });
+    }
+    const content = readCronRunLog(resolveCronPaths(), parts[0], parts[1]);
+    if (content === null) {
+      return NextResponse.json({ error: "Run log not found" }, { status: 404 });
+    }
+    return NextResponse.json({ runLog: { name: parts[1], content } });
+  }
   return NextResponse.json(await listCronJobs());
 }
 
