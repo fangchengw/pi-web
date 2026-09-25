@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { ConfigSwitch } from "./SettingsUi";
 import { formatDuration } from "@/lib/commandcode-windows";
@@ -125,6 +126,13 @@ export function CronJobs() {
     },
     [persist]
   );
+
+  // 自动刷新：只在页面可见时跑，后台标签页零请求（额度面板求稳，cron 更勤）。
+  useAutoRefresh({
+    intervalMs: 60000,
+    onRefresh: query,
+    visibilityCooldownMs: 30000,
+  });
 
   useEffect(() => {
     let needsQuery = true;
