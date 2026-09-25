@@ -85,7 +85,7 @@ function chromeExpiryMs(expiresUtc: number | bigint): number | null {
 export function scanCookiesFromDb(dbPath: string, hostSuffix: string, password: string, now = Date.now()): DbCookieScan {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
-    const stmt = db.prepare("SELECT name, value, encrypted_value, expires_utc FROM cookies WHERE host_key LIKE ?1");
+    const stmt = db.prepare("SELECT name, value, encrypted_value, expires_utc FROM cookies WHERE host_key LIKE ?");
     // expires_utc is microseconds since 1601 — beyond 2^53, so node:sqlite
     // throws "Value is too large" unless integers are read as BigInt.
     stmt.setReadBigInts(true);
