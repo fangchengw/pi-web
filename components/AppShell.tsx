@@ -1992,8 +1992,11 @@ export function AppShell() {
             ref={topBarRef}
             style={{
               flexShrink: 0,
-              background: "var(--bg-panel)",
-              // PWA standalone：顶栏顶到屏幕边会被覆盖式状态条压住（⋯ 等点不到）。
+              // PWA standalone：顶栏顶到屏幕边会被覆盖式状态条压住（⋯ 等点不到），
+              // 所以顶出 env(top) 高度；这一条用页面底色渐变填充，让状态条区域看起来
+              // 像正常页顶，而不是一整块灰色空带。浏览器 env=0 → 全部 bg-panel，无变化。
+              background:
+                "linear-gradient(to bottom, var(--bg) 0 env(safe-area-inset-top, 0px), var(--bg-panel) env(safe-area-inset-top, 0px))",
               paddingTop: "env(safe-area-inset-top)",
             }}
           >
