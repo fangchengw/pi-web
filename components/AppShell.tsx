@@ -450,9 +450,12 @@ export function AppShell() {
   }, [isMobile, isNarrowMobile, selectedSession?.id, newSessionDraftId]);
 
   useEffect(() => {
-    if (!activeTopPanel || !topBarRef.current) return;
+    const barEl = topBarRef.current;
+    if (!activeTopPanel || !barEl) return;
     const update = () => {
-      const topBarRect = topBarRef.current!.getBoundingClientRect();
+      // barEl captured at setup — topBarRef.current can be nulled later by a
+      // shared containerRef unmounting, which used to throw here.
+      const topBarRect = barEl.getBoundingClientRect();
       if (activeTopPanel === "agents") {
         setTopPanelPos({
           top: topBarRect.bottom,
@@ -465,7 +468,7 @@ export function AppShell() {
     };
     update();
     const ro = new ResizeObserver(update);
-    ro.observe(topBarRef.current);
+    ro.observe(barEl);
     return () => ro.disconnect();
   }, [activeTopPanel, isMobile]);
 

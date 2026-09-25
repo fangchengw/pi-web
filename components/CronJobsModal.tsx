@@ -117,9 +117,22 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const cached = JSON.parse(raw) as CachedResult;
-        if (cached?.result?.status) {
-          setResult(cached.result);
-          if (Date.now() - cached.fetchedAt < CACHE_MAX_AGE_MS) needsQuery = false;
+        const cachedResult = cached?.result;
+        if (cachedResult?.status) {
+          // Caches written by older panel versions predate the `runs` field —
+          // normalize so history rendering never crashes, and refresh anyway.
+          let legacyRuns = false;
+          let normalized: CronJobsResult = cachedResult;
+          if (cachedResult.status === "ready") {
+            const cachedJobs = Array.isArray(cachedResult.jobs) ? cachedResult.jobs : [];
+            legacyRuns = cachedJobs.some((job) => !Array.isArray(job.runs));
+            normalized = {
+              ...cachedResult,
+              jobs: cachedJobs.map((job) => ({ ...job, runs: Array.isArray(job.runs) ? job.runs : [] })),
+            };
+          }
+          setResult(normalized);
+          if (Date.now() - cached.fetchedAt < CACHE_MAX_AGE_MS && !legacyRuns) needsQuery = false;
         }
       }
     } catch {
@@ -139,7 +152,9 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
   }, [onClose]);
 
   const ready = result?.status === "ready" ? result : null;
-  const jobs = useMemo(() => ready?.jobs ?? [], [ready]);
+  // Normalize defensively: any job without `runs` (legacy cache/response)
+  // renders as zero history instead of throwing.
+  const jobs = useMemo(() => (ready?.jobs ?? []).map((job) => ({ ...job, runs: job.runs ?? [] })), [ready]);
   const daemon = ready?.daemon;
   const daemonUp = daemon?.daemonRunning ?? false;
 
