@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { formatDuration } from "@/lib/commandcode-windows";
@@ -60,6 +60,9 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
   const [result, setResult] = useState<CronJobsResult | null>(null);
   const [querying, setQuerying] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [runCooldown, setRunCooldown] = useState(false);
+  const [runToast, setRunToast] = useState<"run" | "resumed" | null>(null);
+  const runTimers = useRef<number[]>([]);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [runLog, setRunLog] = useState<RunLogState | null>(null);
@@ -91,6 +94,9 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
   const runAction = useCallback(
     async (body: ActionBody) => {
       const key = body.action === "start-daemon" ? "__daemon" : (body.id ?? "__unknown");
+      // `cron run` 官方语义会把暂停的任务顺带恢复排程（enabled:true）——toast 提醒。
+      const beforeJob =
+        body.action === "run" && result?.status === "ready" ? result.jobs.find((job) => job.id === body.id) : undefined;
       setBusyAction(key);
       try {
         const response = await fetch("/api/cron/jobs", {
@@ -102,14 +108,28 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
         if (!response.ok) throw new Error(data.error ?? (data as { message?: string }).message ?? `HTTP ${response.status}`);
         setResult(data);
         persist(data);
+        if (body.action === "run") {
+          // 手动触发：成功 toast（3s 自动消失）+ 按钮同冷却，稍后补拉一次取回运行日志。
+          setRunToast(beforeJob && !beforeJob.enabled ? "resumed" : "run");
+          setRunCooldown(true);
+          runTimers.current.push(
+            window.setTimeout(() => {
+              setRunToast(null);
+              setRunCooldown(false);
+            }, 3000),
+            window.setTimeout(() => void query(), 5000),
+          );
+        }
       } catch (caught) {
         setResult({ status: "query-failed", message: caught instanceof Error ? caught.message : String(caught) });
       } finally {
         setBusyAction(null);
       }
     },
-    [persist]
+    [persist, query, result]
   );
+
+  useEffect(() => () => runTimers.current.forEach((id) => window.clearTimeout(id)), []);
 
   useEffect(() => {
     let needsQuery = true;
@@ -190,9 +210,9 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
     const label = nextRunLabel(job);
     if (!job.enabled) {
       const future = job.nextRunAt != null && new Date(job.nextRunAt).getTime() > Date.now();
-      return future && label ? `${t("cron.paused")} · ${t("cron.nextRun")} ${label}` : t("cron.paused");
+      return future && label ? `${t("cron.paused")} · ${label}` : t("cron.paused");
     }
-    return label ? `${t("cron.nextRun")} ${label}` : "";
+    return label ?? "";
   };
 
   const scopeHint = (job: CronJobView): string =>
@@ -454,6 +474,7 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
             const job = selected;
             const lastRun = fmtDateTime(job.lastRunAt);
             const nextAbs = fmtDateTime(job.nextRunAt);
+            const runBusy = busyAction === job.id || runCooldown;
             return (
               <div data-testid={`cron-job-${job.id}`} style={{ minWidth: 0 }}>
                 {ready.actionError && (
@@ -467,6 +488,11 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
                   <span style={{ fontSize: 19, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                     {job.name}
                   </span>
+                  {job.enabled && !job.running && job.disabledReason !== "completed_once" && (
+                    <span data-testid="cron-badge-scheduled" style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "rgba(34,197,94,0.15)", color: "#22c55e", flexShrink: 0 }}>
+                      {t("cron.badgeScheduled")}
+                    </span>
+                  )}
                   {!job.enabled && job.disabledReason !== "completed_once" && (
                     <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "rgba(245,158,11,0.15)", color: "#f59e0b", flexShrink: 0 }}>
                       {t("cron.paused")}
@@ -502,14 +528,14 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
                     <button
                       type="button"
                       data-testid={`cron-run-${job.id}`}
-                      disabled={busyAction === job.id}
+                      disabled={runBusy}
                       onClick={() => void runAction({ action: "run", id: job.id })}
                       style={{
                         display: "flex", alignItems: "center", gap: 6,
                         padding: "7px 14px", borderRadius: 8,
                         border: "none", background: "var(--accent)", color: "#fff",
-                        fontSize: 12, fontWeight: 600, cursor: busyAction === job.id ? "default" : "pointer",
-                        opacity: busyAction === job.id ? 0.6 : 1,
+                        fontSize: 12, fontWeight: 600, cursor: runBusy ? "default" : "pointer",
+                        opacity: runBusy ? 0.6 : 1,
                       }}
                     >
                       <span aria-hidden="true">▶</span>
@@ -517,6 +543,22 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
                     </button>
                   </span>
                 </div>
+
+                {runToast && (
+                  <div
+                    data-testid="cron-run-toast"
+                    style={{
+                      position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", zIndex: 5,
+                      display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", borderRadius: 999,
+                      background: "rgba(17,17,17,0.94)", color: "#fff", border: "1px solid rgba(255,255,255,0.14)",
+                      fontSize: 12.5, fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                      pointerEvents: "none", whiteSpace: "nowrap",
+                    }}
+                  >
+                    <span style={{ color: "#4ade80" }} aria-hidden="true">✓</span>
+                    {runToast === "resumed" ? t("cron.runTriggeredResumed") : t("cron.runTriggered")}
+                  </div>
+                )}
 
                 {/* 元数据 */}
                 <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", rowGap: 9, columnGap: 14, margin: "18px 0 4px" }}>
@@ -535,7 +577,7 @@ export function CronJobsModal({ onClose, onOpenSessionId }: Props) {
                     )}
                   </span>
 
-                  <span style={labelStyle}>{t("cron.nextRun")}</span>
+                  <span style={labelStyle}>{t("cron.nextRunLabel")}</span>
                   <span style={valueStyle} data-testid={`cron-next-${job.id}`}>
                     {statusLine(job)}
                     {statusLine(job) && nextAbs ? ` · ${nextAbs}` : nextAbs ?? ""}
