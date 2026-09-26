@@ -21,16 +21,16 @@ export const SIDEBAR_PANELS_STORAGE_KEY = "pi-web:sidebar-panels";
 export const LEGACY_QUOTA_PANELS_STORAGE_KEY = "pi-web:quota-panels";
 export const SIDEBAR_PANELS_CHANGED_EVENT = "pi-web:sidebar-panels-changed";
 
-/** Every registered panel starts visible. */
+/** 面板默认关闭（2026-09-26 侧栏拥挤反馈）；Settings → Panels 打开后状态记在 localStorage。 */
 export function defaultSidebarPanelVisibility(): SidebarPanelVisibility {
   const visibility = {} as SidebarPanelVisibility;
-  for (const id of SIDEBAR_PANEL_IDS) visibility[id] = true;
+  for (const id of SIDEBAR_PANEL_IDS) visibility[id] = false;
   return visibility;
 }
 
 /**
  * Read stored toggles, tolerating missing/malformed/partial payloads:
- * unknown keys are ignored, non-boolean values keep the default (visible).
+ * unknown keys are ignored, non-boolean values keep the default (hidden).
  */
 export function parseSidebarPanelVisibility(raw: string | null | undefined): SidebarPanelVisibility {
   const visibility = defaultSidebarPanelVisibility();

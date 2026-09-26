@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { formatUpdatedTime } from "@/lib/i18n/format";
+import { formatFullTimestamp, formatUpdatedTime } from "@/lib/i18n/format";
 import { isProviderUsageId } from "@/lib/provider-usage-ids";
 
 type UsageBucket = {
@@ -111,7 +111,7 @@ function ProviderUsageContent({ providerId, enabled }: { providerId: string; ena
           )}
         </button>
         {report && (
-          <span title={new Date(report.capturedAt).toLocaleString(locale)} style={{ fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+          <span title={formatFullTimestamp(report.capturedAt, locale)} style={{ fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
             {t("providerUsage.updated", { time: formatUpdatedTime(report.capturedAt, locale) })}
           </span>
         )}
@@ -159,5 +159,5 @@ function formatAmount(value: number | undefined): string {
 }
 
 function formatReset(seconds: number): string {
-  return new Date(seconds * 1_000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(seconds * 1_000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 }

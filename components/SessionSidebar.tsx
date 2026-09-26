@@ -15,6 +15,7 @@ import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { SessionSearch } from "./SessionSearch";
+import { NotificationCenter } from "./NotificationCenter";
 
 // Fixed row height for the session list. SessionItem renders at exactly this
 // height, so the list can be windowed (only the visible slice is mounted).
@@ -1128,7 +1129,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <PiWebTitle />
+          <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+            <PiWebTitle />
+            <NotificationCenter />
+          </div>
           <div style={{ display: "flex", gap: 6 }}>
             <button
               onClick={handleNewSession}
@@ -2229,6 +2233,57 @@ function SessionItem({
     setConfirmDelete(false);
   }, []);
 
+  /* ── Title generation (moved out of the chat top bar into this row menu) ── */
+  const [titleGen, setTitleGen] = useState<
+    { kind: "idle" | "naming" | "success" | "error"; message?: string }
+  >({ kind: "idle" });
+  const titleGenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (titleGenTimerRef.current) clearTimeout(titleGenTimerRef.current);
+  }, []);
+
+  // Summary listings may not have parsed the transcript yet; then we only know
+  // the message count once the API answers, so the button stays enabled.
+  const titleGenBlocked = !session.detailsPending && session.messageCount === 0;
+
+  const handleGenerateTitle = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (session.transient || titleGenBlocked || titleGen.kind === "naming") return;
+    if (titleGenTimerRef.current) clearTimeout(titleGenTimerRef.current);
+    setTitleGen({ kind: "naming" });
+    void (async () => {
+      try {
+        const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/auto-name`, {
+          method: "POST",
+        });
+        const body = (await response.json().catch(() => ({}))) as { title?: string; error?: string };
+        if (!response.ok || !body.title) {
+          throw new Error(body.error || `HTTP ${response.status}`);
+        }
+        setTitleGen({ kind: "success" });
+        onRenamed?.();
+        titleGenTimerRef.current = setTimeout(() => setTitleGen({ kind: "idle" }), 1800);
+      } catch (error) {
+        setTitleGen({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+        titleGenTimerRef.current = setTimeout(() => setTitleGen({ kind: "idle" }), 5000);
+      }
+    })();
+  }, [onRenamed, session.id, session.transient, titleGen.kind, titleGenBlocked]);
+
+  const titleGenBusy = titleGen.kind === "naming";
+  const titleGenSuccess = titleGen.kind === "success";
+  const titleGenError = titleGen.kind === "error";
+  const titleGenHint = titleGenBusy
+    ? t("title.generating")
+    : titleGenSuccess
+      ? t("title.updated")
+      : titleGenError
+        ? (titleGen.message || t("title.failed"))
+        : titleGenBlocked
+          ? t("title.noMessages")
+          : t("title.generate");
+
   const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const handled = dispatchSessionRowContextMenu({
       id: session.id,
@@ -2439,6 +2494,76 @@ function SessionItem({
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                 </svg>
+              </button>
+              <button
+                onClick={handleGenerateTitle}
+                title={titleGenHint}
+                aria-label={titleGenHint}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 32, height: 32, padding: 0,
+                  background: titleGenError
+                    ? "rgba(239,68,68,0.08)"
+                    : titleGenSuccess
+                      ? "rgba(34,197,94,0.10)"
+                      : "var(--bg-hover)",
+                  border: `1px solid ${
+                    titleGenError
+                      ? "rgba(239,68,68,0.35)"
+                      : titleGenSuccess
+                        ? "rgba(34,197,94,0.35)"
+                        : "var(--border)"
+                  }`,
+                  borderRadius: 7,
+                  color: titleGenError
+                    ? "#dc2626"
+                    : titleGenSuccess
+                      ? "#16a34a"
+                      : titleGenBlocked
+                        ? "var(--text-dim)"
+                        : titleGenBusy
+                          ? "var(--accent)"
+                          : "var(--text-muted)",
+                  cursor: titleGenBlocked && !titleGenBusy ? "not-allowed" : "pointer",
+                  opacity: titleGenBlocked && !titleGenBusy ? 0.5 : 1,
+                  flexShrink: 0,
+                  transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  if (titleGenBusy || titleGenSuccess || titleGenError || titleGenBlocked) return;
+                  e.currentTarget.style.background = "var(--bg-selected)";
+                  e.currentTarget.style.color = "var(--accent)";
+                  e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+                }}
+                onMouseLeave={(e) => {
+                  if (titleGenBusy || titleGenSuccess || titleGenError || titleGenBlocked) return;
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = "var(--text-muted)";
+                  e.currentTarget.style.borderColor = "var(--border)";
+                }}
+              >
+                {titleGenBusy ? (
+                  <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                ) : titleGenSuccess ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : titleGenError ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m15 4 5 5L7 22l-5-5Z" />
+                    <path d="m14 5 5 5" />
+                    <path d="M6 4V2M5 3H3M19 19v3M17.5 20.5h3" />
+                  </svg>
+                )}
               </button>
               <button
                 onClick={handleDeleteClick}

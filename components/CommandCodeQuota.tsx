@@ -10,6 +10,7 @@ import {
   type CommandCodeWindow,
   type CommandCodeWindowId,
 } from "@/lib/commandcode-windows";
+import { formatFullTimestamp, formatUpdatedTime } from "@/lib/i18n/format";
 import type { CommandCodeUsageResult } from "@/lib/commandcode-usage";
 
 const STORAGE_KEY = "pi-web:commandcode-quota";
@@ -39,11 +40,13 @@ function formatAmount(value: number): string {
 
 export function CommandCodeQuota() {
   const [result, setResult] = useState<CommandCodeUsageResult | null>(null);
+  // 最近一次成功取数的时刻，用来标示面板数据是不是 up to date。
+  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [querying, setQuerying] = useState(false);
   const [refreshDone, setRefreshDone] = useState(false);
   const [open, setOpen] = useState(true);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
 
   const quotaPaneHeightRef = useRef(QUOTA_PANE_DEFAULT_HEIGHT);
   const quotaPaneResizer = useResizablePanel({
@@ -91,9 +94,11 @@ export function CommandCodeQuota() {
       const response = await fetch("/api/commandcode/usage", { cache: "no-store" });
       const data = (await response.json()) as CommandCodeUsageResult & { error?: string };
       if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+      const at = Date.now();
       setResult(data);
+      setFetchedAt(at);
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ fetchedAt: Date.now(), result: data } satisfies CachedQuota));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ fetchedAt: at, result: data } satisfies CachedQuota));
       } catch {
         // Storage quota errors are non-fatal; the widget still works in memory.
       }
@@ -122,6 +127,7 @@ export function CommandCodeQuota() {
         const cached = JSON.parse(raw) as CachedQuota;
         if (cached?.result?.status) {
           setResult(cached.result);
+          if (typeof cached.fetchedAt === "number") setFetchedAt(cached.fetchedAt);
           // 只有成功的缓存才免于重查；失败结果必须在挂载时立即重试，
           // 否则一次瞬时失败会把面板卡在错误态直到缓存过期。
           if (cached.result.status === "ready" && Date.now() - cached.fetchedAt < CACHE_MAX_AGE_MS) {
@@ -244,9 +250,9 @@ export function CommandCodeQuota() {
           <span
             style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, marginRight: 2, minWidth: 0 }}
             title={
-              hottestWindow
+              `${hottestWindow
                 ? `${hottestLabel}: ${collapsedPct}%${hottestStatus ? ` · ${hottestStatus}` : ""}`
-                : `${percent}%`
+                : `${percent}%`}${fetchedAt !== null ? ` · ${t("providerUsage.updated", { time: formatUpdatedTime(fetchedAt, locale) })}` : ""}`
             }
           >
             {hottestWindow && (
@@ -499,12 +505,32 @@ export function CommandCodeQuota() {
               {t("providerUsage.queryFailed")}
             </span>
           ) : (
-            <span style={{ fontSize: 10, color: "var(--text-dim)" }}>
-              {querying ? t("providerUsage.refreshing") : t("providerUsage.notQueried")}
+              <span style={{ fontSize: 10, color: "var(--text-dim)" }}>
+                {querying ? t("providerUsage.refreshing") : t("providerUsage.notQueried")}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* 上次成功取数时间：固定在滚动区之外，用来判断面板数据是不是 up to date。 */}
+        {open && fetchedAt !== null && (
+          <div style={{ padding: "0 10px 6px", flexShrink: 0, display: "flex", justifyContent: "flex-end", minWidth: 0 }}>
+            <span
+              data-testid="commandcode-quota-updated"
+              title={formatFullTimestamp(fetchedAt, locale)}
+              style={{
+                fontSize: 9,
+                fontFamily: "var(--font-mono)",
+                color: "var(--text-dim)",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {t("providerUsage.updated", { time: formatUpdatedTime(fetchedAt, locale) })}
             </span>
-          )}
-        </div>
-      )}
+          </div>
+        )}
       </div>
     </>
   );

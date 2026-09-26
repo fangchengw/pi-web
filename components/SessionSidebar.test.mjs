@@ -142,6 +142,26 @@ test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);
 });
 
+test("offers title generation beside rename/delete and surfaces each status", () => {
+  // Trigger lives on the row, not in the chat top bar.
+  assert.match(sessionItemSource, /onClick=\{handleGenerateTitle\}/);
+  assert.match(
+    sessionItemSource,
+    /`\/api\/sessions\/\$\{encodeURIComponent\(session\.id\)\}\/auto-name`/,
+  );
+  assert.match(sessionItemSource, /const handleGenerateTitle = useCallback/);
+  assert.match(sessionItemSource, /titleGen\.kind === "naming"/);
+  // Idle / generating / success / error all reach the tooltip.
+  for (const key of ["title.generating", "title.updated", "title.failed", "title.generate"]) {
+    assert.match(sessionItemSource, new RegExp(key));
+  }
+  // The concrete API error is what the user sees on failure.
+  assert.match(sessionItemSource, /titleGen\.message \|\| t\("title\.failed"\)/);
+  // Empty sessions stay disabled with an explanation.
+  assert.match(sessionItemSource, /const titleGenBlocked = !session\.detailsPending && session\.messageCount === 0/);
+  assert.match(sessionItemSource, /t\("title\.noMessages"\)/);
+});
+
 test("hides subagent rows and aggregates their state into the main session row", () => {
   assert.match(source, /const sessionFamilies = useMemo\(\(\) => listSessionFamilies\(filteredSessions\)/);
   assert.match(source, /familySessions\.some\(\(session\) => session\.id === selectedSessionId\)/);

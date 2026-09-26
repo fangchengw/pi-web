@@ -60,7 +60,7 @@ export function formatRelativeTime(date: Date | string, locale: Locale, now = ne
 }
 
 /**
- * 今天只显示时刻；更早的时间和会话列表一样用相对时间。
+ * 今天只显示时刻（24 小时制）；更早的时间和会话列表一样用相对时间。
  * @param timestamp 毫秒时间戳
  * @param locale 当前语言
  * @param now 用于测试或特殊场景的当前时间
@@ -72,6 +72,19 @@ export function formatUpdatedTime(timestamp: number, locale: Locale, now = new D
   const isToday = target.getFullYear() === now.getFullYear()
     && target.getMonth() === now.getMonth()
     && target.getDate() === now.getDate();
-  if (isToday) return target.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+  // 用户偏好 24 小时制：locale 默认可能是 12 小时制（如 en），这里显式固定。
+  if (isToday) return target.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   return formatRelativeTime(target, locale, now);
+}
+
+/**
+ * 带日期的完整时间戳（24 小时制），用于 title/tooltip。
+ * @param timestamp 毫秒时间戳
+ * @param locale 当前语言
+ * @returns locale-aware 的日期时间文本；非法时间戳返回空串
+ */
+export function formatFullTimestamp(timestamp: number, locale: Locale): string {
+  const target = new Date(timestamp);
+  if (Number.isNaN(target.getTime())) return "";
+  return target.toLocaleString(locale, { hourCycle: "h23" });
 }
