@@ -118,7 +118,7 @@ export function TokenAuditModal({ onClose }: Props) {
   const { locale, t } = useI18n();
   const [result, setResult] = useState<TokenAuditResult | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshDone, setRefreshDone] = useState(false);
   // staged = 输入框里的暂存条件；applied = 实际用于筛选的条件（只在点 Refresh 时更新）。
@@ -160,13 +160,12 @@ export function TokenAuditModal({ onClose }: Props) {
     }
   }, []);
 
-  // 打开只读现成报告文件（不跑脚本）；数据更新必须手动点 Refresh。
+  // 打开默认空白（2026-09-26 用户要求）：不自动读现成报告，首次数据必须手动点 Refresh。
   useEffect(() => {
-    void load(false);
     return () => {
       if (doneTimerRef.current) clearTimeout(doneTimerRef.current);
     };
-  }, [load]);
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -281,9 +280,11 @@ export function TokenAuditModal({ onClose }: Props) {
           }}
         >
           <span style={{ fontSize: 13, fontWeight: 650, color: "var(--text)" }}>Token Audit</span>
-          <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {t("tokenAudit.rows", { count: String(rows.length) })}
-          </span>
+          {report && (
+            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+              {t("tokenAudit.rows", { count: String(rows.length) })}
+            </span>
+          )}
           {fetchedAt !== null && (
             <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>
               {t("providerUsage.updated", { time: formatUpdatedTime(fetchedAt, locale) })}
@@ -454,6 +455,15 @@ export function TokenAuditModal({ onClose }: Props) {
             gap: 14,
           }}
         >
+          {result === null && (
+            <div
+              data-testid="token-audit-empty"
+              style={{ padding: "36px 0", textAlign: "center", fontSize: 12, color: "var(--text-dim)" }}
+            >
+              {t("tokenAudit.emptyState")}
+            </div>
+          )}
+
           {result?.status === "unavailable" && (
             <div data-testid="token-audit-unavailable" style={{ fontSize: 12, color: "var(--text-dim)" }}>
               {result.message}
