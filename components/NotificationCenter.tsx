@@ -51,6 +51,32 @@ export function NotificationCenter() {
     }
   }, []);
 
+  const clearAll = useCallback(async () => {
+    // 发当前渲染的未忽略 id 快照——快照后新建的错误不在列表里,不会被误吞。
+    const snapshot = (data?.items ?? [])
+      .filter((item) => !item.dismissed)
+      .map((item) => item.id);
+    if (snapshot.length === 0) return;
+    try {
+      const response = await fetch("/api/notifications/dismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: snapshot, dismissed: true }),
+      });
+      if (!response.ok) return;
+      setData((prev) => {
+        if (!prev) return prev;
+        const hidden = new Set(snapshot);
+        const items = prev.items.map((item) =>
+          hidden.has(item.id) ? { ...item, dismissed: true } : item,
+        );
+        return { ...prev, items, badge: items.filter((item) => !item.dismissed).length };
+      });
+    } catch {
+      // 提交失败保持现状，下一轮轮询对齐。
+    }
+  }, [data]);
+
   const badge = data?.status === "ready" ? data.badge : 0;
   const unavailable = data?.status === "unavailable";
   const badgeText = badge > 99 ? "99+" : String(badge);
@@ -139,6 +165,7 @@ export function NotificationCenter() {
             onClose={() => setOpen(false)}
             onRefresh={query}
             onToggleDismiss={toggleDismiss}
+            onClearAll={clearAll}
           />,
           document.body,
         )}

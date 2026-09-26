@@ -20,6 +20,7 @@ interface Props {
   onClose: () => void;
   onRefresh: () => void;
   onToggleDismiss: (id: string, dismissed: boolean) => void;
+  onClearAll: () => void;
 }
 
 /**
@@ -30,7 +31,7 @@ interface Props {
  * source's details (today always the standalone ErrorDetails panel). The trash
  * icon dismisses (UI-only flag); data lives in the source projections.
  */
-export function NotificationsModal({ data, onClose, onRefresh, onToggleDismiss }: Props) {
+export function NotificationsModal({ data, onClose, onRefresh, onToggleDismiss, onClearAll }: Props) {
   const { locale, t } = useI18n();
   const [narrow, setNarrow] = useState(false);
 
@@ -124,6 +125,33 @@ export function NotificationsModal({ data, onClose, onRefresh, onToggleDismiss }
             <span style={{ fontSize: 10, color: "#f59e0b", flexShrink: 0 }} title={formatFullTimestamp(data?.lastRun ?? 0, locale)}>
               {t("notifications.stale")}
             </span>
+          )}
+          {alerts.length > 0 && (
+            <button
+              type="button"
+              data-testid="notifications-clear-all"
+              onClick={onClearAll}
+              title={t("notifications.clearAllHint")}
+              style={{
+                fontSize: 11,
+                padding: "4px 10px",
+                borderRadius: 7,
+                border: "1px solid var(--border)",
+                background: "transparent",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                flexShrink: 0,
+                transition: "color 0.1s, background 0.1s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "#ef4444";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--text-muted)";
+              }}
+            >
+              {t("notifications.clearAll")} ({alerts.length})
+            </button>
           )}
           <button
             type="button"

@@ -1,15 +1,26 @@
 import { NextResponse } from "next/server";
-import { loadDismissState, saveDismissState } from "@/lib/notification-dismiss";
+import { hideIds, loadDismissState, saveDismissState } from "@/lib/notification-dismiss";
 
 export const dynamic = "force-dynamic";
 
 export interface DismissRequest {
-  id: string;
+  /** Single id (toggle). */
+  id?: string;
+  /** Batch ids (Clear all) — the caller's rendered snapshot, never "all active":
+   * an error created after the snapshot stays visible. */
+  ids?: string[];
   dismissed: boolean;
 }
 
-/** Toggle the UI-only dismiss flag. Never touches source state, so the
- * error-detail view (which reads projections) is unaffected either way. */
+const MAX_BATCH = 500;
+
+/**
+ * REMINDER LAYER only: writes `hidden`, never `alertOff`.
+ *
+ * Dismissing hides a reminder; it never touches source state or the
+ * per-error alert policy — those belong to the Errors panel
+ * (/api/notifications/alert-policy).
+ */
 export async function POST(request: Request): Promise<NextResponse> {
   let body: Partial<DismissRequest>;
   try {
@@ -17,15 +28,32 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
-  const { id, dismissed } = body;
-  if (typeof id !== "string" || !id || id.length > 512 || typeof dismissed !== "boolean") {
-    return NextResponse.json({ error: "id (string) and dismissed (boolean) required" }, { status: 400 });
+  const { id, ids, dismissed } = body;
+  const batch = Array.isArray(ids) ? ids.filter((value) => typeof value === "string" && value) : null;
+  if ((typeof id !== "string" || !id) && (!batch || batch.length === 0)) {
+    return NextResponse.json({ error: "id (string) or ids (string[]) and dismissed (boolean) required" }, { status: 400 });
+  }
+  if (batch && batch.length > MAX_BATCH) {
+    return NextResponse.json({ error: `ids exceeds ${MAX_BATCH}` }, { status: 400 });
+  }
+  if (typeof dismissed !== "boolean") {
+    return NextResponse.json({ error: "dismissed (boolean) required" }, { status: 400 });
   }
 
   try {
     const state = loadDismissState();
-    if (dismissed) state[id] = Date.now();
-    else delete state[id];
+    if (batch) {
+      // Batch: only the ids the client actually rendered are hidden.
+      if (dismissed) {
+        state.hidden = hideIds(state.hidden, batch, Date.now());
+      } else {
+        for (const batchId of batch) delete state.hidden[batchId];
+      }
+      saveDismissState(state);
+      return NextResponse.json({ ok: true, count: batch.length });
+    }
+    if (dismissed) state.hidden[id!] = Date.now();
+    else delete state.hidden[id!];
     saveDismissState(state);
     return NextResponse.json({ ok: true });
   } catch (error) {

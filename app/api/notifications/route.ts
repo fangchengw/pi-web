@@ -1,57 +1,57 @@
 import { NextResponse } from "next/server";
-import { readFileSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
-import { projectWatchdog, type NotificationDto, type NotificationItem, type NotificationsResponse, type WatchdogState } from "@/lib/notifications";
-import { loadDismissState, pruneDismissed, saveDismissState } from "@/lib/notification-dismiss";
+import { buildNotificationView, type NotificationsResponse } from "@/lib/notifications";
+import { aggregateSources } from "@/lib/notification-sources";
+import { loadDismissState, pruneHidden, saveDismissState } from "@/lib/notification-dismiss";
 
 export const dynamic = "force-dynamic";
 
-/** ~/.openviking/watchdog-state.json — written by watchdog.py (launchd, 5min). */
-const WATCHDOG_STATE_PATH = join(homedir(), ".openviking", "watchdog-state.json");
-
 export async function GET(): Promise<NextResponse> {
-  let items: NotificationItem[];
-  let lastRun = 0;
-  try {
-    const raw = readFileSync(WATCHDOG_STATE_PATH, "utf8");
-    const state = JSON.parse(raw) as WatchdogState;
-    if (typeof state !== "object" || state === null) throw new Error("malformed watchdog state");
-    items = projectWatchdog(state);
-    lastRun = typeof state.last_run === "number" ? state.last_run * 1000 : 0;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+  // Registry-driven: no source is hardcoded here. A dead source degrades to a
+  // failure entry; the others keep serving.
+  const { items, lastRun, failures } = aggregateSources();
+
+  if (failures.length > 0 && items.length === 0 && lastRun === 0) {
+    // Every source is down — nothing to serve.
     return NextResponse.json({
       status: "unavailable",
-      message: message.startsWith("ENOENT") ? "watchdog 未运行" : message,
+      message: failures.map((f) => `${f.id}: ${f.message}`).join("; "),
       lastRun: 0,
       badge: 0,
       items: [],
+      failures,
     } satisfies NotificationsResponse);
   }
 
-  // Dismiss state: merge, and GC ids whose issues vanished — but only now that
-  // the source read succeeded, so a transient read failure can't wipe them.
-  const dismissed = loadDismissState();
+  const state = loadDismissState();
   const activeIds = items.map((item) => item.id);
-  const pruned = pruneDismissed(dismissed, activeIds);
-  if (Object.keys(pruned).length !== Object.keys(dismissed).length) {
+  const { dtos, badge, newlyHidden } = buildNotificationView(items, state);
+
+  let changed = newlyHidden.length > 0;
+  const hidden = { ...state.hidden };
+  for (const id of newlyHidden) hidden[id] = Date.now();
+
+  // GC only when EVERY source loaded: a failed source contributes zero items,
+  // and pruning against that partial view would wipe its dismissals.
+  if (failures.length === 0) {
+    const pruned = pruneHidden(hidden, activeIds);
+    if (Object.keys(pruned).length !== Object.keys(hidden).length) changed = true;
+    state.hidden = pruned; // note: pruned ⊆ hidden (newlyHidden ids are active by construction)
+  } else {
+    state.hidden = hidden;
+  }
+  if (changed) {
     try {
-      saveDismissState(pruned);
+      saveDismissState(state);
     } catch {
-      // GC failure only delays cleanup; serving the response matters more.
+      // State persistence failure only delays bookkeeping; serve the response.
     }
   }
 
-  const dtos: NotificationDto[] = items.map((item) => ({
-    ...item,
-    dismissed: Object.hasOwn(pruned, item.id),
-  }));
-  const body: NotificationsResponse = {
+  return NextResponse.json({
     status: "ready",
     lastRun,
-    badge: dtos.filter((item) => !item.dismissed).length,
+    badge,
     items: dtos,
-  };
-  return NextResponse.json(body);
+    failures: failures.length > 0 ? failures : undefined,
+  } satisfies NotificationsResponse);
 }

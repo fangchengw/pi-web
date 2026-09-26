@@ -20,13 +20,12 @@ interface Props {
 
 /**
  * Error details panel (top-bar entry, standalone — deliberately independent
- * from the notification modal).
+ * from the notification modal: 错误管错误,通知管通知).
  *
- * The full data layer: every projected error regardless of dismiss state.
- * Each row's bell shows the *current* state (normal bell = still alerting,
- * crossed bell = dismissed), which doubles as the restore control. Expanding a
- * row reveals the full error text with copy — this is where "太长看不全" is
- * solved.
+ * The full data layer: every projected error regardless of reminder state.
+ * Each row carries ONE control — a switch for the error line's FUTURE alert
+ * policy (`alertOff`), which never changes which notifications are currently
+ * visible. Expanding a row reveals the full error text with copy.
  */
 export function ErrorDetailsModal({ focusId, onClose }: Props) {
   const { locale, t } = useI18n();
@@ -95,14 +94,19 @@ export function ErrorDetailsModal({ focusId, onClose }: Props) {
     }
   }, []);
 
-  /** Toggle the UI-only dismiss flag, then refetch to stay consistent with
-   * the reminder layer (the bell badge updates on its next poll). */
-  const toggleDismiss = useCallback(async (item: NotificationDto) => {
+  /** Toggle this error line's FUTURE alert policy (error layer). Never
+   * touches the reminder layer: muting arms/disarms arrivals only, existing
+   * notifications stay put until the user trashes them. */
+  const toggleAlertPolicy = useCallback(async (item: NotificationDto) => {
     try {
-      const response = await fetch("/api/notifications/dismiss", {
+      const response = await fetch("/api/notifications/alert-policy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: item.id, dismissed: !item.dismissed }),
+        body: JSON.stringify({
+          namespace: item.namespace,
+          source: item.source,
+          off: !item.alertOff,
+        }),
       });
       if (response.ok) await query();
     } catch {
@@ -214,7 +218,7 @@ export function ErrorDetailsModal({ focusId, onClose }: Props) {
                   borderBottom: "1px solid var(--border)",
                   padding: "8px 0",
                   background: focusId === item.id ? "rgba(239,68,68,0.06)" : undefined,
-                  opacity: item.dismissed ? 0.66 : 1,
+                  opacity: item.alertOff ? 0.66 : 1,
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -247,42 +251,42 @@ export function ErrorDetailsModal({ focusId, onClose }: Props) {
                       {formatUpdatedTime(item.updatedAt, locale)}
                     </span>
                   </button>
-                  {/* 铃铛 = 显示当前状态：正常铃铛=提醒中，划掉=已忽略；点击切换 */}
+                  {/* 开关 = 该错误线的未来提醒策略：开=新发生会提醒，关=已静音；不碰现有通知 */}
                   <button
                     type="button"
-                    data-testid="error-details-item-bell"
-                    aria-label={item.dismissed ? t("notifications.dismissed") : t("notifications.active")}
-                    aria-pressed={!item.dismissed}
-                    title={item.dismissed ? t("notifications.undismiss") : t("notifications.dismiss")}
-                    onClick={() => void toggleDismiss(item)}
+                    role="switch"
+                    data-testid="error-details-item-alert-switch"
+                    aria-checked={!item.alertOff}
+                    aria-label={item.alertOff ? t("notifications.switchOffTitle") : t("notifications.switchOnTitle")}
+                    title={item.alertOff ? t("notifications.switchOffTitle") : t("notifications.switchOnTitle")}
+                    onClick={() => void toggleAlertPolicy(item)}
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "center",
-                      width: 24,
-                      height: 24,
-                      background: "none",
-                      border: "none",
-                      borderRadius: 6,
-                      color: item.dismissed ? "var(--text-dim)" : LEVEL_COLOR[item.level],
-                      cursor: "pointer",
+                      position: "relative",
+                      width: 32,
+                      height: 18,
+                      padding: 0,
                       flexShrink: 0,
+                      borderRadius: 9,
+                      border: "none",
+                      cursor: "pointer",
+                      background: item.alertOff ? "var(--border)" : "#22c55e",
+                      transition: "background 0.15s",
                     }}
                   >
-                    {item.dismissed ? (
-                      /* 已忽略 → 划掉的铃铛（当前状态：静默） */
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M18.6 18.6c-.5.7-1.1 1.3-1.8 1.8V20a2 2 0 0 1-3.46-1.4" />
-                        <path d="M13.73 15.4A6 6 0 0 0 6 8c0 7-3 9-3 9h13" />
-                        <line x1="3" y1="3" x2="21" y2="21" />
-                      </svg>
-                    ) : (
-                      /* 提醒中 → 正常铃铛（当前状态：在提醒） */
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                      </svg>
-                    )}
+                    <span
+                      style={{
+                        position: "absolute",
+                        top: 2,
+                        left: item.alertOff ? 2 : 16,
+                        width: 14,
+                        height: 14,
+                        borderRadius: "50%",
+                        background: item.alertOff ? "var(--text-dim)" : "#fff",
+                        transition: "left 0.15s, background 0.15s",
+                      }}
+                    />
                   </button>
                 </div>
                 {expanded && (
@@ -295,7 +299,6 @@ export function ErrorDetailsModal({ focusId, onClose }: Props) {
                         {t("notifications.lastSeen", { time: formatUpdatedTime(item.updatedAt, locale) })}
                       </span>
                       <span>{t("notifications.occurrences", { count: item.count })}</span>
-                      <span>{item.dismissed ? t("notifications.dismissed") : t("notifications.active")}</span>
                     </div>
                     <pre
                       data-testid="error-details-item-body"
