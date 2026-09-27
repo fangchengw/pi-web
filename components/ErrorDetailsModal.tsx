@@ -268,7 +268,8 @@ export function ErrorDetailsModal({ focusId, onClose }: Props) {
                       background: "none",
                       border: "none",
                       borderRadius: 6,
-                      color: item.alertOff ? "var(--text-dim)" : LEVEL_COLOR[item.level],
+                      /* 铃铛颜色与顶栏通知铃铛一致：提醒中 var(--text)，静音 var(--text-dim)（不再跟随错误级别变色） */
+                      color: item.alertOff ? "var(--text-dim)" : "var(--text)",
                       cursor: "pointer",
                       flexShrink: 0,
                     }}
