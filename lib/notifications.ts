@@ -101,6 +101,10 @@ export function notificationId(
  *    createdAt > alertOff): the error layer manages the future, the reminder
  *    layer manages the present.
  * 4. Dismissed items stay in `dtos` — dismiss hides a reminder, never data.
+ * 5. A dismissal only covers the occurrence the user saw (2026-09-27): once
+ *    the source reports a later occurrence (updatedAt > hiddenAt) the item
+ *    re-enters the reminder layer on its own. Muted lines (alertOff — the
+ *    Errors-panel bell) stay silent regardless; that is the durable mute.
  */
 export function buildNotificationView(
   items: NotificationItem[],
@@ -109,10 +113,18 @@ export function buildNotificationView(
   const newlyHidden: string[] = [];
   const dtos = items.map((item) => {
     const mutedAt = state.alertOff[alertPolicyKey(item.namespace, item.source)];
+    const hiddenAt = state.hidden[item.id];
     const suppressed =
-      mutedAt !== undefined && item.createdAt > mutedAt && !Object.hasOwn(state.hidden, item.id);
+      mutedAt !== undefined && item.createdAt > mutedAt && hiddenAt === undefined;
     if (suppressed) newlyHidden.push(item.id);
-    const dismissed = suppressed || Object.hasOwn(state.hidden, item.id);
+    // Dismiss = "not now", never "never": the hidden record only covers the
+    // occurrence that existed when it was written. A later occurrence of the
+    // same generation (last_seen after hiddenAt) is a new reminder the user
+    // asked to see. A muted line keeps its dismissal — alertOff is the
+    // durable "don't tell me" switch.
+    const hidden =
+      hiddenAt !== undefined && (mutedAt !== undefined || item.updatedAt <= hiddenAt);
+    const dismissed = suppressed || hidden;
     return { ...item, dismissed, alertOff: mutedAt !== undefined };
   });
   return { dtos, badge: dtos.filter((dto) => !dto.dismissed).length, newlyHidden };
