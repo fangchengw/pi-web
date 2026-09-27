@@ -60,21 +60,28 @@ export function formatRelativeTime(date: Date | string, locale: Locale, now = ne
 }
 
 /**
- * 今天只显示时刻（24 小时制）；更早的时间和会话列表一样用相对时间。
+ * 统一的绝对时间（24 小时制），列表里不再混用「00:57」和「21 小时前」：
+ * 今天 → `00:57`；昨天 → `昨天 22:03`（en: `Yesterday 22:03`）；
+ * 更早 → `9/25 22:03`。完整日期时间放 tooltip（{@link formatFullTimestamp}）。
  * @param timestamp 毫秒时间戳
  * @param locale 当前语言
  * @param now 用于测试或特殊场景的当前时间
- * @returns 今天的时刻，或更早时间的相对时间文本
+ * @returns 绝对日期时间文本（今天的只有时刻）
  */
 export function formatUpdatedTime(timestamp: number, locale: Locale, now = new Date()): string {
   const target = new Date(timestamp);
   if (Number.isNaN(target.getTime())) return "";
-  const isToday = target.getFullYear() === now.getFullYear()
-    && target.getMonth() === now.getMonth()
-    && target.getDate() === now.getDate();
   // 用户偏好 24 小时制：locale 默认可能是 12 小时制（如 en），这里显式固定。
-  if (isToday) return target.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-  return formatRelativeTime(target, locale, now);
+  const clock = target.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  // 用「日历日之差」而不是 24h 取整，避免夏令时那天算错一天。
+  const dayDiff = Math.round((startOfDay(now) - startOfDay(target)) / 86_400_000);
+  if (dayDiff <= 0) return clock;
+  if (dayDiff === 1) {
+    const label = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-1, "day");
+    return `${label.charAt(0).toUpperCase()}${label.slice(1)} ${clock}`;
+  }
+  return `${target.toLocaleDateString(locale, { month: "numeric", day: "numeric" })} ${clock}`;
 }
 
 /**
