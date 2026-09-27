@@ -251,42 +251,42 @@ export function ErrorDetailsModal({ focusId, onClose }: Props) {
                       {formatUpdatedTime(item.updatedAt, locale)}
                     </span>
                   </button>
-                  {/* 开关 = 该错误线的未来提醒策略：开=新发生会提醒，关=已静音；不碰现有通知 */}
+                  {/* 铃铛 = 该错误线的未来提醒策略：正常铃铛=新发生会提醒，划掉=已静音；不碰现有通知 */}
                   <button
                     type="button"
-                    role="switch"
-                    data-testid="error-details-item-alert-switch"
-                    aria-checked={!item.alertOff}
+                    data-testid="error-details-item-bell"
                     aria-label={item.alertOff ? t("notifications.switchOffTitle") : t("notifications.switchOnTitle")}
+                    aria-pressed={!item.alertOff}
                     title={item.alertOff ? t("notifications.switchOffTitle") : t("notifications.switchOnTitle")}
                     onClick={() => void toggleAlertPolicy(item)}
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      position: "relative",
-                      width: 32,
-                      height: 18,
-                      padding: 0,
-                      flexShrink: 0,
-                      borderRadius: 9,
+                      justifyContent: "center",
+                      width: 24,
+                      height: 24,
+                      background: "none",
                       border: "none",
+                      borderRadius: 6,
+                      color: item.alertOff ? "var(--text-dim)" : LEVEL_COLOR[item.level],
                       cursor: "pointer",
-                      background: item.alertOff ? "var(--border)" : "#22c55e",
-                      transition: "background 0.15s",
+                      flexShrink: 0,
                     }}
                   >
-                    <span
-                      style={{
-                        position: "absolute",
-                        top: 2,
-                        left: item.alertOff ? 2 : 16,
-                        width: 14,
-                        height: 14,
-                        borderRadius: "50%",
-                        background: item.alertOff ? "var(--text-dim)" : "#fff",
-                        transition: "left 0.15s, background 0.15s",
-                      }}
-                    />
+                    {item.alertOff ? (
+                      /* 已静音 → 划掉铃铛（当前状态：静默） */
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M18.6 18.6c-.5.7-1.1 1.3-1.8 1.8V20a2 2 0 0 1-3.46-1.4" />
+                        <path d="M13.73 15.4A6 6 0 0 0 6 8c0 7-3 9-3 9h13" />
+                        <line x1="3" y1="3" x2="21" y2="21" />
+                      </svg>
+                    ) : (
+                      /* 提醒中 → 正常铃铛（当前状态：在提醒） */
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                      </svg>
+                    )}
                   </button>
                 </div>
                 {expanded && (
