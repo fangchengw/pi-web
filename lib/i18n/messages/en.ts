@@ -484,7 +484,6 @@ export const enLocale: LocalePlugin = {
     "notifications.title": "Notifications",
     "notifications.jump": "Open details",
     "notifications.clearAll": "Clear all",
-    "notifications.clearAllHint": "Dismiss every visible notification (new errors will still appear)",
     "notifications.badge": "{count} active notifications",
     "notifications.unavailable": "Monitor not running",
     "notifications.close": "Close",

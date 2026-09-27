@@ -484,7 +484,6 @@ export const zhTWLocale: LocalePlugin = {
     "notifications.title": "通知",
     "notifications.jump": "查看詳情",
     "notifications.clearAll": "全部清除",
-    "notifications.clearAllHint": "忽略目前所有通知（之後的新錯誤仍會出現在這裡）",
     "notifications.badge": "{count} 條活躍通知",
     "notifications.unavailable": "監控未運行",
     "notifications.close": "關閉",

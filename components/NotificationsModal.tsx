@@ -131,7 +131,6 @@ export function NotificationsModal({ data, onClose, onRefresh, onToggleDismiss, 
               type="button"
               data-testid="notifications-clear-all"
               onClick={onClearAll}
-              title={t("notifications.clearAllHint")}
               style={{
                 fontSize: 11,
                 padding: "4px 10px",
