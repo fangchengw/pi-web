@@ -264,6 +264,9 @@ export function AppShell() {
   }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
+  // Errors panel → 新对话: prompt to paste into the brand-new draft composer
+  // once its ChatInput mounts (visible text, not an auto-send).
+  const [pendingComposerText, setPendingComposerText] = useState<string | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
@@ -986,6 +989,28 @@ export function AppShell() {
     setPendingQuotePrompt({ sessionId: result.newSessionId, text: prompt });
     handleSessionForked(result.newSessionId);
   }, [handleSessionForked, translate]);
+
+  /** Errors panel → 在当前对话询问: paste the full visible error prompt into
+   * the open composer; the panel covers the chat, so close it afterwards. */
+  const handleAskErrorHere = useCallback((prompt: string) => {
+    const input = chatInputRef.current;
+    if (!input) throw new Error(translate("errorDetails.composerUnavailable"));
+    input.insertText(prompt);
+    setActiveTopPanel(null);
+    setErrorFocusId(null);
+  }, [translate]);
+
+  /** Errors panel → 在新对话询问: spin up a fresh draft and paste the same
+   * prompt into ITS composer (nothing is auto-sent; the user sees the context
+   * and types their question). */
+  const handleAskErrorInNewChat = useCallback((prompt: string) => {
+    const cwd = selectedSession?.cwd ?? newSessionCwd ?? activeCwd;
+    if (!cwd) throw new Error(translate("errorDetails.newChatFailed"));
+    setPendingComposerText(prompt);
+    handleNewSession(`errq-${Date.now().toString(36)}`, cwd);
+    setActiveTopPanel(null);
+    setErrorFocusId(null);
+  }, [activeCwd, handleNewSession, newSessionCwd, selectedSession, translate]);
 
   const handleInitialRestoreDone = useCallback(() => {
     setInitialSessionRestored(true);
@@ -2115,6 +2140,38 @@ export function AppShell() {
                     setActiveTopPanel(null);
                     return true;
                   }}
+                  onOpenFile={async (jobId, fileName) => {
+                    try {
+                      const response = await fetch("/api/sessions/open-transcript", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ jobId, fileName }),
+                      });
+                      const data = (await response.json()) as { path?: string; error?: string };
+                      if (!response.ok || !data.path) return false;
+                      handleOpenFile(data.path, getFileName(data.path));
+                      setActiveTopPanel(null);
+                      return true;
+                    } catch {
+                      return false;
+                    }
+                  }}
+                  onContinueSession={async (jobId, fileName) => {
+                    try {
+                      const response = await fetch("/api/sessions/open-transcript", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ jobId, fileName }),
+                      });
+                      const data = (await response.json()) as { id?: string; error?: string };
+                      if (!response.ok || !data.id) return false;
+                      await handleOpenSession(data.id);
+                      setActiveTopPanel(null);
+                      return true;
+                    } catch {
+                      return false;
+                    }
+                  }}
                 />
               )}
               {activeTopPanel === "audit" && (
@@ -2123,6 +2180,8 @@ export function AppShell() {
               {activeTopPanel === "errors" && (
                 <ErrorDetailsModal
                   focusId={errorFocusId}
+                  onAskHere={showChat ? handleAskErrorHere : undefined}
+                  onAskInNewChat={showChat || activeCwd ? handleAskErrorInNewChat : undefined}
                   onClose={() => {
                     setActiveTopPanel(null);
                     setErrorFocusId(null);
@@ -2374,6 +2433,8 @@ export function AppShell() {
               quoteSelectionEnabled={quoteSelectionEnabled}
               initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id ? pendingQuotePrompt?.text : undefined}
               onInitialPromptConsumed={() => setPendingQuotePrompt(null)}
+              initialComposerText={pendingComposerText ?? undefined}
+              onInitialComposerTextConsumed={() => setPendingComposerText(null)}
               soundEnabled={soundEnabled}
               onSoundToggle={onSoundToggle}
               playDoneSound={playDoneSound}

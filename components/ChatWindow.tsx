@@ -58,6 +58,9 @@ interface Props {
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSession?: (sessionId: string) => void;
   onAskInNewChat?: (prompt: string, sourceSessionId: string, sourceEntryId: string) => Promise<void>;
+  /** Text to paste into the composer once it mounts (Errors panel → 新对话). */
+  initialComposerText?: string;
+  onInitialComposerTextConsumed?: () => void;
   quoteSelectionEnabled?: boolean;
   initialPrompt?: string;
   onInitialPromptConsumed?: () => void;
@@ -241,7 +244,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, initialComposerText, onInitialComposerTextConsumed, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -448,6 +451,22 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     onInitialPromptConsumed?.();
     void handleSend(initialPrompt);
   }, [initialPrompt, loading, error, handleSend, onInitialPromptConsumed]);
+
+  // Errors panel → 新对话：草稿会话的输入框挂载后，把完整的错误提示粘进去
+  // （不自动发送——用户先看到上下文，再补自己的问题）。
+  const composerTextPastedRef = useRef(false);
+  useEffect(() => {
+    if (!initialComposerText) {
+      composerTextPastedRef.current = false;
+      return;
+    }
+    if (loading || error || composerTextPastedRef.current) return;
+    const input = chatInputRef?.current;
+    if (!input) return;
+    composerTextPastedRef.current = true;
+    onInitialComposerTextConsumed?.();
+    input.insertText(initialComposerText);
+  }, [initialComposerText, loading, error, chatInputRef, onInitialComposerTextConsumed]);
 
   useEffect(() => {
     if (

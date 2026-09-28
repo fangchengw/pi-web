@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { copyText } from "@/lib/clipboard";
+import { buildErrorPrompt } from "@/lib/error-prompt";
 import { formatFullTimestamp, formatUpdatedTime } from "@/lib/i18n/format";
 import type { NotificationDto, NotificationsResponse } from "@/lib/notifications";
 
@@ -16,6 +17,10 @@ interface Props {
   /** Notification jump target: expand + scroll to this error id. */
   focusId?: string | null;
   onClose: () => void;
+  /** Copy the full error prompt into the currently open composer. */
+  onAskHere?: (prompt: string) => void;
+  /** Copy the full error prompt into a brand-new draft composer. */
+  onAskInNewChat?: (prompt: string) => void;
 }
 
 /**
@@ -27,13 +32,16 @@ interface Props {
  * policy (`alertOff`), which never changes which notifications are currently
  * visible. Expanding a row reveals the full error text with copy.
  */
-export function ErrorDetailsModal({ focusId, onClose }: Props) {
+export function ErrorDetailsModal({ focusId, onClose, onAskHere, onAskInNewChat }: Props) {
   const { locale, t } = useI18n();
   const [data, setData] = useState<NotificationsResponse | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(focusId ?? null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [narrow, setNarrow] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // 固定按钮在展开行内；错误（无输入框/无工作目录）就地显示在按钮下方。
+  const [askError, setAskError] = useState<{ itemId: string; message: string } | null>(null);
 
   const query = useCallback(async () => {
     try {
@@ -113,6 +121,29 @@ export function ErrorDetailsModal({ focusId, onClose }: Props) {
       // 提交失败保持现状，下次刷新重对。
     }
   }, [query]);
+
+  // 完整错误提示：元数据 + id + 引用正文 + 问题占位 —— 所见即所得。
+  const buildPrompt = useCallback(
+    (item: NotificationDto) => buildErrorPrompt(item, {
+      intro: t("errorDetails.quoteIntro"),
+      question: t("chat.quoteQuestion"),
+      lastSeen: formatFullTimestamp(item.updatedAt, locale),
+    }),
+    [t, locale],
+  );
+
+  const runAsk = useCallback((
+    item: NotificationDto,
+    ask: ((prompt: string) => void) | undefined,
+  ) => {
+    if (!ask) return;
+    try {
+      ask(buildPrompt(item));
+      setAskError(null);
+    } catch (error) {
+      setAskError({ itemId: item.id, message: error instanceof Error ? error.message : String(error) });
+    }
+  }, [buildPrompt]);
 
   return (
     <div
@@ -291,8 +322,10 @@ export function ErrorDetailsModal({ focusId, onClose }: Props) {
                   </button>
                 </div>
                 {expanded && (
-                  <div style={{ marginTop: 8 }}>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", display: "flex", flexWrap: "wrap", gap: "0 14px", marginBottom: 6, marginLeft: 13 }}>
+                  /* 展开区整体左右各 13：正文框不再单边缩进，元数据/正文/按钮
+                     共用同一条对称内容栏 [13, W-13]（圆点仍在最左悬挂）。 */
+                  <div style={{ marginTop: 8, padding: "0 13px" }}>
+                    <div style={{ fontSize: 10, color: "var(--text-dim)", display: "flex", flexWrap: "wrap", gap: "0 14px", marginBottom: 6 }}>
                       <span title={formatFullTimestamp(item.createdAt, locale)}>
                         {t("notifications.firstSeen", { time: formatUpdatedTime(item.createdAt, locale) })}
                       </span>
@@ -321,7 +354,10 @@ export function ErrorDetailsModal({ focusId, onClose }: Props) {
                     >
                       {item.body}
                     </pre>
-                    <div style={{ marginTop: 8, marginLeft: 13 }}>
+                    <div
+                      style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}
+                      title={t("errorDetails.attachHint")}
+                    >
                       <button
                         type="button"
                         data-testid="error-details-item-copy"
@@ -338,6 +374,59 @@ export function ErrorDetailsModal({ focusId, onClose }: Props) {
                       >
                         {copiedId === item.id ? t("i18n.copied") : t("i18n.copy")}
                       </button>
+                      {onAskHere && (
+                        <button
+                          type="button"
+                          data-testid="error-details-ask-here"
+                          onClick={() => runAsk(item, onAskHere)}
+                          aria-label={t("chat.askInCurrent")}
+                          style={{
+                            fontSize: 11,
+                            padding: "5px 12px",
+                            borderRadius: 7,
+                            border: "1px solid var(--border)",
+                            background: "var(--bg-hover)",
+                            color: "var(--text-muted)",
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 5,
+                          }}
+                        >
+                          <span aria-hidden="true" style={{ fontSize: 13 }}>@</span>
+                          {t("chat.askInCurrent")}
+                        </button>
+                      )}
+                      {onAskInNewChat && (
+                        <button
+                          type="button"
+                          data-testid="error-details-ask-new-chat"
+                          onClick={() => runAsk(item, onAskInNewChat)}
+                          aria-label={t("chat.askInNewChat")}
+                          style={{
+                            fontSize: 11,
+                            padding: "5px 12px",
+                            borderRadius: 7,
+                            border: "1px solid var(--border)",
+                            background: "var(--bg-hover)",
+                            color: "var(--text-muted)",
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 5,
+                          }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M6 3v12M18 9a9 9 0 0 1-9 9" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" />
+                          </svg>
+                          {t("chat.askInNewChat")}
+                        </button>
+                      )}
+                      {askError?.itemId === item.id && (
+                        <span role="alert" style={{ fontSize: 11, color: "#dc2626", overflowWrap: "anywhere" }}>
+                          {askError.message}
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -346,6 +435,7 @@ export function ErrorDetailsModal({ focusId, onClose }: Props) {
           })}
         </div>
       </div>
+
     </div>
   );
 }
